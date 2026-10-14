@@ -1,6 +1,7 @@
 from main.src.utils.enums import Role
 import uuid
 import json
+from datetime import datetime, timezone
 
 from main.src.memory.memory_service import database, insert, fetch_records, fetch_record, update, delete, upsert
 
@@ -33,7 +34,7 @@ def clear_chat_history(chat_id):
 
     update(
         "chats",
-        {"title": 'New chat', "updated_at": "strftime('%Y-%m-%d %H:%M:%f', 'now')"},
+        {"title": 'New chat', "updated_at": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')},
         {"id": chat_id}
     )
 
@@ -90,7 +91,7 @@ def save_message(chat_id, message):
     )
     update(
         "chats",
-        {"updated_at": "strftime('%Y-%m-%d %H:%M:%f', 'now')"},
+        {"updated_at": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')},
         {"id": chat_id}
     )
 

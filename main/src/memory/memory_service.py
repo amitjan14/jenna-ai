@@ -89,6 +89,16 @@ def database():
             GROUP BY chat_id
         """)
 
+        # Recover timestamps previously bound as SQL text rather than evaluated.
+        # Exact historic activity times are unavailable; messages are the best
+        # surviving source, with creation time as the fallback for empty chats.
+        connection.execute("""
+            UPDATE chats SET updated_at = COALESCE(
+                (SELECT MAX(created_at) FROM chat_messages WHERE chat_id = chats.id),
+                created_at
+            ) WHERE updated_at = ?
+        """, ("strftime('%Y-%m-%d %H:%M:%f', 'now')",))
+
         connection.commit()
 
         with connection:

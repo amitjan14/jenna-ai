@@ -203,11 +203,12 @@ with st.sidebar:
     st.divider()
     st.subheader("Upload Documents")
 
+    st.session_state.setdefault('pdf_uploader_version', 0)
     uploaded_files = st.file_uploader(
         "Choose PDF files",
         type=["pdf"],
         accept_multiple_files=True,
-        key="pdf_uploader",
+        key=f"pdf_uploader_{st.session_state.pdf_uploader_version}",
     )
 
     if "processed_uploads" not in st.session_state:
@@ -266,6 +267,9 @@ with st.sidebar:
                     st.session_state.processed_uploads = {
                         key for key in st.session_state.processed_uploads if key[0] != filename
                     }
+                    # A new widget clears stale selected files before the next
+                    # upload pass; explicitly selecting the PDF again still works.
+                    st.session_state.pdf_uploader_version += 1
                     st.rerun()
                 except Exception as error:
                     st.error(f"Could not delete {filename}: {error}")

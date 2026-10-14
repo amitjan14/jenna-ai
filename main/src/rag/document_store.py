@@ -32,6 +32,23 @@ from main.src.utils.constants import DOCUMENT_CHUNKING_VERSION, DOCUMENT_PARSER_
 # Logger
 logger = logging.getLogger(__name__)
 
+
+def _index_snapshot(filename):
+    return collection.get(where={"filename": filename},
+                          include=["documents", "metadatas", "embeddings"])
+
+
+def _restore_index(filename, snapshot):
+    """Remove partial replacement writes and restore even overlapping chunk IDs."""
+    collection.delete(where={"filename": filename})
+    for start in range(0, len(snapshot['ids']), MAX_BATCH_SIZE):
+        end = start + MAX_BATCH_SIZE
+        collection.upsert(ids=snapshot['ids'][start:end],
+                          documents=snapshot['documents'][start:end],
+                          metadatas=snapshot['metadatas'][start:end],
+                          embeddings=snapshot['embeddings'][start:end])
+
+
 def index_and_store_document(pdf_bytes, filename):
     content_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
@@ -57,29 +74,30 @@ def index_and_store_document(pdf_bytes, filename):
         )
     )
 
+    snapshot = None
     if unchanged_index:
         chunk_count = len(ids)
         indexing_status = "already_indexed"
     else:
+        snapshot = _index_snapshot(filename)
         chunk_count = add_document(
             io.BytesIO(pdf_bytes),
             filename,
         )
         indexing_status = "indexed"
 
-    saved_record = load_document_records().get(filename)
-
-    if (
-        saved_record is None
-        or saved_record["content_hash"] != content_hash
-        or saved_record["chunk_count"] != chunk_count
-    ):
-        save_document(
-            filename,
-            content_hash,
-            pdf_bytes,
-            chunk_count,
-        )
+    try:
+        saved_record = load_document_records().get(filename)
+        if (
+            saved_record is None
+            or saved_record["content_hash"] != content_hash
+            or saved_record["chunk_count"] != chunk_count
+        ):
+            save_document(filename, content_hash, pdf_bytes, chunk_count)
+    except Exception:
+        if snapshot is not None:
+            _restore_index(filename, snapshot)
+        raise
 
     return {
         "status": indexing_status,
@@ -140,24 +158,22 @@ def add_document(pdf_file, filename):
         f"{document_id}:{content_hash}:{i}"
         for i in range(len(all_chunks))
     ]
-    old_ids = set(
-        collection.get(
-            where={"filename": filename},
-            include=[],
-        )["ids"]
-    )
+    snapshot = _index_snapshot(filename)
+    old_ids = set(snapshot['ids'])
+    try:
+        for start in range(0, len(all_chunks), MAX_BATCH_SIZE):
+            end = start + MAX_BATCH_SIZE
+            collection.upsert(
+                ids=new_ids[start:end], documents=all_chunks[start:end],
+                embeddings=embeddings[start:end], metadatas=all_metadata[start:end],
+            )
 
-    for start in range(0, len(all_chunks), MAX_BATCH_SIZE):
-        end = start + MAX_BATCH_SIZE
-        collection.upsert(
-            ids=new_ids[start:end], documents=all_chunks[start:end],
-            embeddings=embeddings[start:end], metadatas=all_metadata[start:end],
-        )
-
-    obsolete_ids = sorted(old_ids - set(new_ids))
-
-    if obsolete_ids:
-        collection.delete(ids=obsolete_ids)
+        obsolete_ids = sorted(old_ids - set(new_ids))
+        if obsolete_ids:
+            collection.delete(ids=obsolete_ids)
+    except Exception:
+        _restore_index(filename, snapshot)
+        raise
 
     return len(all_chunks)
 
