@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "jenna": {
+      "command": "/Users/amitnagarajan/personal/project/jenna-ai/.venv/bin/python",
+      "args": [
+        "/Users/amitnagarajan/personal/project/jenna-ai/main/src/tools/mcp_server.py"
+      ],
+      "env": {
+        "JENNA_MEMORY_PATH": "/Users/amitnagarajan/personal/project/jenna-ai/main/jenna_memory"
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "servers": {
+    "openai": {
+      "label": "OpenAI MCP",
+      "transport": "streamable-http",
+      "url": "https://developers.openai.com/mcp",
+      "auth": {
+        "type": "none"
+      },
+      "context": {
+        "purpose": "Search and fetch official OpenAI documentation"
+      },
+      "initial_search": {
+        "tool": "search_openai_docs",
+        "question_argument": "query",
+        "defaults": {
+          "limit": 3
+        }
+      },
+      "answer_tools": [
+        "fetch_openai_doc"
+      ]
+    },
+    "jira": {
+      "label": "Jira \u00b7 Swirepay SPD",
+      "transport": "streamable-http",
+      "url": "https://mcp.atlassian.com/v2/mcp?tools=all",
+      "auth": {
+        "type": "oauth"
+      },
+      "context": {
+        "site_url": "https://swirepay.atlassian.net",
+        "project_key": "SPD",
+        "timezone": "Asia/Calcutta"
+      },
+      "allowed_tools": [
+        "getAccessibleAtlassianResources",
+        "atlassianUserInfo",
+        "getJiraIssue",
+        "searchJiraIssuesUsingJql",
+        "listJiraProjects",
+        "listJiraBoards",
+        "getJiraBoardConfig",
+        "getJiraBoardIssueData",
+        "getJiraBoardSprintData",
+        "listJiraBoardSprints",
+        "getJiraCurrentUser",
+        "lookupJiraAccountId",
+        "listJiraIssueChangelogs"
+      ]
+    }
+  }
+}

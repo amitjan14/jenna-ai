@@ -1,0 +1,231 @@
+{
+  "version": "1.0",
+  "corpus": {
+    "maple_policy.pdf": {
+      "text": "MAPLE LABS POLICY\nEffective 1 September 2026. Annual leave entitlement is 22 days. Requests use the Cedar portal. The training reimbursement cap is 900 dollars per year.",
+      "parser": "text"
+    },
+    "orion_operations.pdf": {
+      "text": "ORION OPERATIONS\nOrion uses port 9208 and is owned by Saira Khan. Orion maintenance runs on Saturdays. The service timeout is 45 seconds.",
+      "parser": "text"
+    },
+    "expense_table.pdf": {
+      "text": "EXPENSE CAPS\nMeals | 35 dollars per day\nHotels | 140 dollars per night\nTaxi | 60 dollars per trip",
+      "parser": "table"
+    },
+    "scanned_notice.pdf": {
+      "text": "Site access opens at 8 AM. The desk phone is 4402.",
+      "parser": "scan"
+    },
+    "old_policy.pdf": {
+      "text": "ARCHIVED MAPLE POLICY\nEffective 1 January 2025. Annual leave entitlement is 15 days. This policy is archived.",
+      "parser": "text"
+    }
+  },
+  "cases": [
+    {
+      "id": "pdf-01",
+      "split": "heldout",
+      "question": "How many annual leave days does the September 2026 Maple policy allow?",
+      "expected": [
+        "22"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-02",
+      "split": "development",
+      "question": "Which portal handles Maple leave requests?",
+      "expected": [
+        "Cedar"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-03",
+      "split": "development",
+      "question": "What is the annual training reimbursement cap?",
+      "expected": [
+        "900"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-04",
+      "split": "heldout",
+      "question": "What port does Orion use?",
+      "expected": [
+        "9208"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-05",
+      "split": "development",
+      "question": "Who owns Orion?",
+      "expected": [
+        "Saira Khan"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-06",
+      "split": "development",
+      "question": "Which day is Orion maintenance scheduled?",
+      "expected": [
+        "Saturday"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-07",
+      "split": "development",
+      "question": "How long is the Orion service timeout?",
+      "expected": [
+        "45"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-08",
+      "split": "heldout",
+      "question": "What is the daily meal expense cap?",
+      "expected": [
+        "35"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-09",
+      "split": "development",
+      "question": "What is the nightly hotel limit?",
+      "expected": [
+        "140"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-10",
+      "split": "development",
+      "question": "How much can one taxi trip cost?",
+      "expected": [
+        "60"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-11",
+      "split": "heldout",
+      "question": "When does site access open according to the scanned notice?",
+      "expected": [
+        "8"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-12",
+      "split": "development",
+      "question": "What is the desk phone extension in the scanned notice?",
+      "expected": [
+        "4402"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-13",
+      "split": "development",
+      "question": "What is the Orion owner and port?",
+      "expected": [
+        "Saira Khan",
+        "9208"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-14",
+      "split": "heldout",
+      "question": "Compare the meal and hotel caps.",
+      "expected": [
+        "35",
+        "140"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-15",
+      "split": "development",
+      "question": "Compare annual leave in the archived and September 2026 policies.",
+      "expected": [
+        "15",
+        "22"
+      ],
+      "refusal": false,
+      "history": []
+    },
+    {
+      "id": "pdf-16",
+      "split": "development",
+      "question": "What is the exact CEO salary at Maple Labs?",
+      "expected": [],
+      "refusal": true,
+      "history": []
+    },
+    {
+      "id": "pdf-17",
+      "split": "development",
+      "question": "What database password does Orion use?",
+      "expected": [],
+      "refusal": true,
+      "history": []
+    },
+    {
+      "id": "pdf-18",
+      "split": "heldout",
+      "question": "How many leave days are allowed and what is the CEO salary?",
+      "expected": [],
+      "refusal": true,
+      "history": []
+    },
+    {
+      "id": "pdf-19",
+      "split": "development",
+      "question": "What GPU model runs Orion?",
+      "expected": [],
+      "refusal": true,
+      "history": []
+    },
+    {
+      "id": "pdf-20",
+      "split": "development",
+      "question": "Who owns it?",
+      "expected": [
+        "Saira Khan"
+      ],
+      "refusal": false,
+      "history": [
+        {
+          "role": "user",
+          "content": "What port does Orion use?"
+        },
+        {
+          "role": "assistant",
+          "content": "Orion uses port 9208."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "info": {
+    "name": "Jenna local API contracts",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8767"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('healthy local API', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().inference).to.eql('local'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Readiness",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/ready"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('readiness schema', function () { pm.expect([200,503]).to.include(pm.response.code); pm.expect(pm.response.json().ready).to.be.a('boolean'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invalid job",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/jobs",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"question\":\"\"}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('reject empty question', function () { pm.response.to.have.status(422); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Missing job",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/jobs/00000000000000000000000000000000"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('unknown job', function () { pm.response.to.have.status(404); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submit calculation",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/jobs",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"question\":\"Calculate 6*7\",\"mode\":\"Documents\",\"timeout\":60}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('job accepted', function () { pm.response.to.have.status(202); pm.expect(pm.response.json().id).to.be.a('string'); });",
+              "pm.collectionVariables.set('jobId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Read job",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/jobs/{{jobId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('job schema', function () { pm.response.to.have.status(200); pm.expect(['queued','running','completed']).to.include(pm.response.json().status); });",
+              "const job = pm.response.json();",
+              "if (job.status === 'completed') { pm.test('calculation result', () => pm.expect(job.result.answer).to.include('42')); } else { const count = Number(pm.collectionVariables.get('polls') || 0) + 1; pm.collectionVariables.set('polls', count); if (count < 15) { pm.execution.setNextRequest('Read job'); } else { pm.test('job completes', () => pm.expect.fail('Job did not complete')); } }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trace list",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/traces?limit=10"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('local trace list', function () { pm.response.to.have.status(200); pm.expect(pm.response.json()).to.be.an('array'); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

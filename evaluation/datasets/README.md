@@ -1,0 +1,7 @@
+# Generalization dataset v1
+
+60 authored synthetic requests across deadlines, history, sprints, assigned work, follow-ups, absent facts, transport/auth failures, ambiguity, embedded instructions, and conflicting historical/current facts. 42 development cases and 18 held-out cases are assigned before evaluation. No project chats, Jira records, notes, or training data were copied into this dataset. The fixtures are entirely synthetic.
+
+Run development while changing prompts or code. Run heldout only after freezing a candidate; do not alter the prompt to fit held-out failures. If a held-out case informs development, retire it into development and author a new held-out replacement. Neither subset establishes broad production accuracy. Expected fragments are deterministic smoke checks; manual scoring separately measures correctness, factual support, completeness, and appropriate abstention. Missing facts must be reported as unknown; do not reward refusal on answerable tasks.
+
+A separate 20-case PDF dataset adds unseen policy/operations documents, conflicting archived/current policy facts, structured tables, a scanned notice, multipart requests, follow-ups, and absent facts. It has 14 development and six held-out cases. Across both datasets there are 80 cases: 56 development and 24 held-out. PDF evaluations ingest actual generated PDFs in an isolated store and use the real app pipeline.

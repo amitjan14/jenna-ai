@@ -1,0 +1,34 @@
+{
+  "version": "1.1",
+  "equivalent_phrases": {
+    "Not set": [
+      "not set",
+      "unset",
+      "null",
+      "does not have a due date",
+      "no due date"
+    ],
+    "In Progress": [
+      "in progress",
+      "in-progress"
+    ]
+  },
+  "notes": "Accept equivalent wording for known concepts; fragment scoring remains a deterministic development check, supplemented by independent human review. Freeze this policy before held-out runs.",
+  "refusal_terms": [
+    "not found",
+    "not available",
+    "not provided",
+    "cannot",
+    "could not",
+    "couldn't",
+    "unable",
+    "no information",
+    "which issue",
+    "specify",
+    "not contain",
+    "not included",
+    "doesn't exist",
+    "does not exist",
+    "permission"
+  ]
+}

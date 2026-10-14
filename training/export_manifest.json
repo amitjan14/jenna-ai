@@ -1,0 +1,7 @@
+{
+  "converter_revision": "8bb3cf0d216a5ae48360179f2931daf284be4d01",
+  "format": "GGUF Q8_0",
+  "ollama_model": "jenna-finetuned:latest",
+  "registered": true,
+  "private_weights": true
+}
