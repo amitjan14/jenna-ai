@@ -20,7 +20,7 @@ CALCULATION_REQUEST = r'\b(?:calculate|compute|evaluate)\b'
 DOCUMENT_INVENTORY_REFERENCE = r'\b(documents?|pdfs?|files?|filenames?)\b'
 DOCUMENT_INVENTORY_REQUEST = r'\b(list|filenames?|how many|count)\b|\b(?:what|which)\s+(?:documents?|pdfs?|files?)\s+(?:are|have)\b'
 DOCUMENT_CONTENT_FILTER = r'\b(about|discuss(?:es|ing)?|contain(?:s|ing)?|mention(?:s|ing)?|cover(?:s|ing)?)\b'
-CALCULATOR_INTENT = r'\b(?:calculate|compute|evaluate|plus|minus|times|divide|multiply|subtract|sum|sqrt|square root|percent|average|mean|bmi|body mass index)\b|[%+*/]'
+CALCULATOR_INTENT = r'\b(?:calculate|compute|evaluate|add|plus|minus|times|divide|multiply|subtract|sum|sqrt|square root|percent|average|mean|bmi|body mass index)\b|[%+*/]'
 INLINE_CODE = r'```|\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\(|Traceback \(most recent call last\)'
 CODE_HELP_REQUEST = r'\b(?:debug|fix|repair|explain|review|refactor|correct)\b'
 CODE_SOURCE_REQUEST = r'\b(?:jira|confluence|uploaded|pdfs?|documents?)\b|\b(?:search|browse|look up)\b|\b(?:from|in|according to)\s+(?:my|our)\s+notes\b'
@@ -41,6 +41,20 @@ ARITHMETIC_ROOT = r'(?:calculate|compute|what is)\s+(?:the\s+)?square root of\s+
 ARITHMETIC_PERCENTAGE = r'(?:calculate|compute|what is)\s+' + NUMBER + r'\s*%\s+of\s+' + NUMBER
 ARITHMETIC_PREFIX = r'^(?:calculate|compute|evaluate|what is)\s+'
 ARITHMETIC_EXPRESSION = r'[\d\s.+*/%()\-]+'
+ARITHMETIC_OPERAND = r'(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)'
+ARITHMETIC_WORD_PATTERNS = (
+    ('+', False, ARITHMETIC_OPERAND + r'\s+plus\s+' + ARITHMETIC_OPERAND),
+    ('-', False, ARITHMETIC_OPERAND + r'\s+minus\s+' + ARITHMETIC_OPERAND),
+    ('*', False, ARITHMETIC_OPERAND + r'\s+(?:times|multiplied by)\s+' + ARITHMETIC_OPERAND),
+    ('/', False, ARITHMETIC_OPERAND + r'\s+divided by\s+' + ARITHMETIC_OPERAND),
+    ('+', True, r'add\s+' + ARITHMETIC_OPERAND + r'\s+to\s+' + ARITHMETIC_OPERAND),
+    ('-', True, r'subtract\s+' + ARITHMETIC_OPERAND + r'\s+from\s+' + ARITHMETIC_OPERAND),
+    ('*', False, r'multiply\s+' + ARITHMETIC_OPERAND + r'\s+by\s+' + ARITHMETIC_OPERAND),
+    ('/', False, r'divide\s+' + ARITHMETIC_OPERAND + r'\s+by\s+' + ARITHMETIC_OPERAND),
+)
+ARITHMETIC_RESULT_REFERENCE = r'\b(?:that|it|(?:the\s+)?(?:previous\s+)?result)\b'
+ARITHMETIC_LABELLED_RESULT = r'(?:the\s+)?previous\s+result\s*\(\s*' + ARITHMETIC_OPERAND + r'\s*\)'
+CALCULATOR_ANSWER_EXPRESSION = r'(?:^|\n)`([^`\n]{1,200})`\s*=\s*\*\*-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\*\*\s*$'
 COSINE_FORMULA = r'cos\s*\(\s*a\s*,\s*b\s*\)\s*=\s*\(\s*a\s*[·⋅]\s*b\s*\)\s*/\s*\(\s*\|\|\s*a\s*\|\|\s*\|\|\s*b\s*\|\|\s*\)'
 COSINE_FORMULA_PROSE = r'cosine similarity formula is\s+dot\(\s*A\s*,\s*B\s*\)\s+divided by the product of the vector norms'
 COSINE_REQUEST = r'\bcosine\s+similarity\b'

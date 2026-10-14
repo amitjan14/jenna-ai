@@ -1,5 +1,5 @@
 """Content-addressed manifests and measurable release gates."""
-import ollama
+from main.src.tools.llm import get_client
 import hashlib
 import importlib.metadata
 import json
@@ -29,7 +29,7 @@ def manifest():
     revision=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
     models={}
     try:
-        models={model.model:model.digest for model in ollama.Client(timeout=3).list().models}
+        models={model.model:model.digest for model in get_client(timeout=3).list().models}
     except Exception:pass
     content_digest=hashlib.sha256(json.dumps(fingerprints,sort_keys=True).encode()).hexdigest()
     return {'version':VERSION,'created_at':datetime.now(timezone.utc).isoformat(),'revision':revision.stdout.strip() if revision.returncode==0 else None,

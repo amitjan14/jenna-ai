@@ -1,4 +1,5 @@
 """Loopback REST API for Jenna jobs, traces, and readiness."""
+from main.src.tools.llm import get_client
 from main.src.utils.enums import Connection, ExecutionStatus
 from main.src.utils.constants import DEFAULT_CHAT_MODEL
 import os
@@ -23,11 +24,10 @@ def health():return {'status':'ok','version':'0.2.0','inference':Connection.LOCA
 
 @app.get('/ready')
 def ready():
-    import ollama
     from main.src.utils.constants import CHAT_MODEL,ROUTER_MODEL,EMBEDDING_MODEL
     required={CHAT_MODEL,ROUTER_MODEL,EMBEDDING_MODEL,os.getenv('JENNA_MCP_MODEL',DEFAULT_CHAT_MODEL)}
     try:
-        installed={m.model for m in ollama.Client(timeout=3).list().models}
+        installed={m.model for m in get_client(timeout=3).list().models}
         missing=sorted(model for model in required if model not in installed and model+':latest' not in installed)
         return JSONResponse({'ready':not missing,'missing_models':missing},status_code=503 if missing else 200)
     except Exception:return JSONResponse({'ready':False,'reason':'Ollama unavailable'},status_code=503)

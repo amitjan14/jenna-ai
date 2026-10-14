@@ -7,6 +7,8 @@ search_documents:
 
 calculator:
 - Explicit arithmetic calculations.
+- Standalone numerical instructions such as "Add 7 to the previous result (13)"
+  are calculator requests. Use the supplied resolved value, not document search.
 - Put only the arithmetic expression in expression.
 - Supported operators: +, -, *, /, % and parentheses.
 - The sqrt(value) function is supported for square roots.

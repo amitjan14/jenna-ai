@@ -7,7 +7,7 @@ import re
 from jsonschema import validate, ValidationError
 from main.src.utils.common_utils import make_result, load_prompt
 from main.src.utils.constants import CHAT_MODEL
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 from main.src.utils.schemas import STATE_SCHEMA, GROUNDED_VERIFY_SCHEMA, GROUNDED_SUMMARY_SCHEMA
 from main.src.memory.note_memory import remember_note, recall_note, forget_note, list_notes
 from main.src.utils.common_utils import normalize_key
@@ -66,7 +66,7 @@ def general_reply(question, history=None, state=None, client=None):
     messages = [{'role': Role.SYSTEM, 'content': system}, {'role': Role.SYSTEM, 'content':
         instructions.USER_CONTEXT_PREFIX + json.dumps({'state': state or EMPTY_STATE, 'saved_preferences': notes}, ensure_ascii=False)}]
     messages.extend(context_messages(history, question)); messages.append({'role': Role.USER, 'content': question})
-    model = client or Client(timeout=120)
+    model = client or get_client(timeout=120)
     answer = model.stream_chat(model=CHAT_MODEL, messages=messages,
         options={'temperature': 0 if is_local_code_request(question) else .3, 'num_predict': 2048}, think=False)
     return make_result(answer, ResultStatus.CONVERSATION_COMPLETED, Action.CONVERSATION)
@@ -103,7 +103,7 @@ def verify_grounded(question, answer, sources, support, client=None):
     schema = GROUNDED_VERIFY_SCHEMA
     relevant = [{'source_id': s['source_id'], 'title': sources[s['source_id']].get('filename', ''),
                  'quote': s['quote'], 'context': sources[s['source_id']].get('text', '')[:3500]} for s in support]
-    response = (client or Client(timeout=90)).chat(model=CHAT_MODEL, think=False, format=schema,
+    response = (client or get_client(timeout=90)).chat(model=CHAT_MODEL, think=False, format=schema,
         messages=[{'role': Role.SYSTEM, 'content':
             load_prompt(PromptName.GROUNDED_VERIFY)},
             {'role': Role.USER, 'content': json.dumps({'request': question, 'answer': answer, 'evidence': relevant}, ensure_ascii=False)}],
@@ -119,7 +119,7 @@ def natural_summary(question, result, client=None):
     selected = [{'source_id': s['source_id'], 'citation': f"[{s['source_id']+1}]", 'quote': s['quote'],
                  'title': sources[s['source_id']].get('filename', '')} for s in support]
     try:
-        response = (client or Client(timeout=90)).chat(model=CHAT_MODEL, format=schema, think=False,
+        response = (client or get_client(timeout=90)).chat(model=CHAT_MODEL, format=schema, think=False,
             messages=[{'role': Role.SYSTEM, 'content': load_prompt(PromptName.GROUNDED_SUMMARY)},
                 {'role': Role.USER, 'content': json.dumps({'question': question, 'verified_passages': selected}, ensure_ascii=False)}],
             options={'temperature': 0, 'num_predict': 1536})
@@ -147,7 +147,7 @@ def rewrite_reply(question, history, state=None, client=None):
     if not grounded:
         result = general_reply(question, history, state, client)
         result.update(action=Action.REWRITE, answer_kind=AnswerKind.REWRITE); return result
-    response = (client or Client(timeout=90)).chat(model=CHAT_MODEL, think=False,
+    response = (client or get_client(timeout=90)).chat(model=CHAT_MODEL, think=False,
         messages=[{'role': Role.SYSTEM, 'content': instructions.GROUNDED_REVISION},
             {'role': Role.USER, 'content': json.dumps({'request': question, 'previous_answer': previous['content'],
                 'evidence': [s['quote'] for s in support]}, ensure_ascii=False)}],

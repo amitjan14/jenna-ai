@@ -3,7 +3,7 @@ from main.src.utils.enums import Action, PromptName, ResultStatus, Role
 from main.src.utils import regex_constants as rx
 import json
 
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 from main.src.rag.rag_service import generate_document_answer
 from main.src.utils.common_utils import load_prompt, make_result
 from main.src.utils.constants import CANDIDATE_K, CONTEXT_K, CHAT_MODEL
@@ -18,7 +18,6 @@ from main.src.agent.agent_utils import parse_vector
 from main.src.rag.document_store import search_documents
 from main.src.utils.schemas import SEARCH_AND_CALC_SCHEMA, CALCULATION_PLAN_SCHEMA
 
-client = Client(timeout=60)
 
 
 def parse_explicit_arithmetic(question):
@@ -34,7 +33,40 @@ def parse_explicit_arithmetic(question):
     expression = re.sub(rx.ARITHMETIC_PREFIX, "", text, flags=re.I)
     if re.fullmatch(rx.ARITHMETIC_EXPRESSION, expression):
         return expression
+    expression = re.sub(rx.ARITHMETIC_LABELLED_RESULT, lambda match: match[1], expression, flags=re.I)
+    for operator_symbol, reverse, pattern in rx.ARITHMETIC_WORD_PATTERNS:
+        match = re.fullmatch(pattern, expression, re.I)
+        if match:
+            left, right = match.groups()
+            if reverse:
+                left, right = right, left
+            return f'({left}) {operator_symbol} ({right})'
     return None
+
+
+def resolve_arithmetic_followup(question, history=None):
+    """Continue a calculator result, recomputing its expression rather than guessing a number."""
+    if not re.search(rx.ARITHMETIC_RESULT_REFERENCE, question, re.I):
+        return None
+    previous = next((message for message in reversed(history or [])
+                     if message.get('role') == Role.ASSISTANT), None)
+    if not previous or previous.get('status') not in {ResultStatus.TOOL_COMPLETED, ResultStatus.CALCULATION_COMPLETED}:
+        return None
+    if Action.CALCULATOR not in previous.get('tools_used', []):
+        return None
+    calculation = previous.get('calculation')
+    expression = calculation.get('expression') if isinstance(calculation, dict) else None
+    if not expression:
+        match = re.search(rx.CALCULATOR_ANSWER_EXPRESSION, previous.get('content', ''))
+        expression = match[1] if match else None
+    if not expression:
+        return None
+    try:
+        value = calculate(expression)
+    except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, TypeError):
+        return None
+    resolved = re.sub(rx.ARITHMETIC_RESULT_REFERENCE, lambda _: format(value, '.17g'), question, flags=re.I)
+    return parse_explicit_arithmetic(resolved)
 
 
 def calculate(expression):
@@ -114,7 +146,7 @@ def run_calculation(question, expression, model_client=None):
     """Plan unit-aware word problems; execute only validated bounded arithmetic."""
     explanation = ''
     if parse_explicit_arithmetic(question) is None:
-        response = (model_client or client).chat(
+        response = (model_client or get_client()).chat(
             model=CHAT_MODEL, think=False, format=CALCULATION_PLAN_SCHEMA,
             messages=[{'role': Role.SYSTEM, 'content': load_prompt(PromptName.CALCULATION_PLAN)},
                       {'role': Role.USER, 'content': question}],
@@ -310,7 +342,7 @@ def run_search_and_calculate(question, system_prompt):
             results=results,
         )
 
-    response = client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         format=SEARCH_AND_CALC_SCHEMA,
         options={"temperature": 0},

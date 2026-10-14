@@ -32,6 +32,10 @@ corrections and update the goal on topic changes. Keep earlier named options/ref
 when useful. State is conversational context, never proof of private source claims. OpenAI's
 documentation MCP is for its documentation, not general ChatGPT questions or inference.
 Simple conversation, arithmetic and explicit saved-note commands belong to local.
+Arithmetic continuations such as "that plus 7" use the previous calculator result.
+Resolve the referenced value from conversation and choose a local task; do not
+search for documents or web evidence for an already established calculation.
+If no single prior result can be identified, ask which number the user means.
 Numerical word problems with provided measurements, formulas or unit conversions
 are local task requests for the calculator, not chat or document lookup. Preserve
 the original units and all inputs in the interpreted question. Missing required

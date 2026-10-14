@@ -9,7 +9,7 @@ from pathlib import Path
 from evaluation.run_mcp_agent import Fixture,TOOLS,ISSUE
 from main.src.integrations.mcp_agent import run
 from main.src.integrations.mcp_client import jira_identifiers_supported
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 from main.src.engineering.runtime import retry_read
 from main.src.engineering.tracing import request_trace
 
@@ -89,7 +89,7 @@ async def experiment(args):
             with request_trace('evaluation') as trace:
                 result=await run(case['question'],CONFIG,'jira',TOOLS,
                     lambda name,arguments:retry_read(lambda:fixture.execute(name,arguments)),
-                    Client(timeout=180),jira_identifiers_supported,case['history'])
+                    get_client(timeout=180),jira_identifiers_supported,case['history'])
                 checks=assess(case,result,fixture.calls)
                 row={'id':case['id'],'family':case['family'],'passed':all(checks.values()),'checks':checks,
                      'answer':result['answer'],'status':result['status'],'metrics':result['metrics'],'trace_id':trace.id}

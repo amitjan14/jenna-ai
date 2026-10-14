@@ -8,8 +8,8 @@ from main.src.agent.agent_utils import is_search_calculation_request, is_direct_
 from main.src.memory.note_memory import handle_memory_command
 from main.src.rag.document_store import search_documents, list_documents
 from main.src.rag.rag_service import rewrite_search_query, generate_document_answer, plan_question_parts
-from main.src.tools.calculator import calculate, run_search_and_calculate, run_calculation
-from main.src.tools.llm import Client
+from main.src.tools.calculator import calculate, run_search_and_calculate, run_calculation, resolve_arithmetic_followup
+from main.src.tools.llm import get_client
 from main.src.tools.web_tools import run_online_search
 from main.src.utils.common_utils import load_prompt, make_result
 from main.src.utils.constants import CHAT_MODEL, ROUTER_MODEL, CANDIDATE_K, CONTEXT_K
@@ -17,7 +17,6 @@ from main.src.utils.diagnostics import debug
 from main.src.utils.schemas import ROUTE_SCHEMA, RESOLVE_FOLLOWUP_SCHEMA
 from main.src.utils.telemetry import instrument_request
 
-client = Client(timeout=60)
 
 def decide_action(question):
     if is_search_calculation_request(question):
@@ -35,7 +34,7 @@ def decide_action(question):
     if expression is not None:
         return {"action": Action.CALCULATOR, "expression": expression}
 
-    response = client.chat(
+    response = get_client().chat(
         model=ROUTER_MODEL,
         messages=[
             {"role": Role.SYSTEM, "content": load_prompt(PromptName.ROUTING)},
@@ -145,6 +144,9 @@ def clarification_selection(question, history):
     return None
 
 def resolve_followup(question, history=None):
+    arithmetic = resolve_arithmetic_followup(question, history)
+    if arithmetic is not None:
+        return {'status': FollowupStatus.RESOLVED, 'question': arithmetic, 'clarification': ''}
     # Simple greetings and capability requests need no resolution.
     text = " ".join(question.casefold().split()).strip(" .!?")
 
@@ -250,7 +252,7 @@ def resolve_followup(question, history=None):
             ),
         }
 
-    response = client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         messages=[
             {
@@ -655,7 +657,7 @@ def run_agent(
 
         messages.append({"role": Role.USER, "content": question})
 
-        response = client.chat(
+        response = get_client().chat(
             model=CHAT_MODEL,
             messages=messages,
             options={"temperature": 0.3},

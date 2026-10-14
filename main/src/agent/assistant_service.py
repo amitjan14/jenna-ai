@@ -4,7 +4,7 @@ from main.src.utils import regex_constants as rx
 import json
 import re
 from jsonschema import validate
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 from main.src.utils.common_utils import load_prompt, make_result
 from main.src.utils.constants import ROUTER_MODEL
 from main.src.utils.schemas import assistant_schema
@@ -23,7 +23,7 @@ from main.src.agent.conversation import (
 )
 from main.src.memory.note_memory import list_notes
 from main.src.integrations.mcp_client import load_servers
-from main.src.tools.calculator import parse_explicit_arithmetic
+from main.src.tools.calculator import parse_explicit_arithmetic, resolve_arithmetic_followup
 from main.src.agent.agent_utils import is_direct_conversation
 from main.src.agent.agent_service import run_agent
 from main.src.rag.context import active_document_filter
@@ -43,7 +43,7 @@ def plan_request(question, history=None, servers=None, model_client=None, state=
                          'read_tools': config.get('allowed_tools', [])} for name, config in servers.items())
     recent = context_messages(history, question)
     checkpoint('interpreting_request', model=ROUTER_MODEL)
-    response = (model_client or Client(timeout=90)).chat(model=ROUTER_MODEL, think=False,
+    response = (model_client or get_client(timeout=90)).chat(model=ROUTER_MODEL, think=False,
         format=assistant_schema(names), messages=[{'role': Role.SYSTEM, 'content': load_prompt(PromptName.ASSISTANT)},
           {'role': Role.USER, 'content': json.dumps({'question': question, 'history': recent,
                                                'capabilities': capabilities, 'state': state or EMPTY_STATE,
@@ -98,11 +98,12 @@ def run_assistant(question, history=None, connection=Connection.AUTO, mode=Searc
     if not isinstance(question, str) or not question.strip():
         return make_result('Please enter a question.', ResultStatus.INVALID_REQUEST, None)
     text = question.strip()
+    arithmetic_followup = resolve_arithmetic_followup(text, history)
     # Clear deterministic commands need no extra interpretation/model roundtrip.
     simple = text.casefold().startswith(('remember:', 'recall:', 'forget:')) or text.casefold() == 'memories'
-    simple = simple or is_direct_conversation(text) or parse_explicit_arithmetic(text) is not None
+    simple = simple or is_direct_conversation(text) or parse_explicit_arithmetic(text) is not None or arithmetic_followup is not None
     if simple and connection in {Connection.AUTO, Connection.LOCAL}:
-        plan = {'connection': Connection.LOCAL, 'mode': mode, 'question': text, 'clarification': '',
+        plan = {'connection': Connection.LOCAL, 'mode': mode, 'question': arithmetic_followup or text, 'clarification': '',
                 'intent': Intent.CHAT if is_direct_conversation(text) else Intent.TASK, 'state': state, 'memory_key':'', 'memory_value':''}
     else:
         plan = plan_request(text, history, servers, model_client, state)

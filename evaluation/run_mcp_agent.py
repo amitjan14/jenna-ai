@@ -12,7 +12,7 @@ from jsonschema import validate
 from mcp.types import Tool
 from main.src.integrations.mcp_agent import run
 from main.src.integrations.mcp_client import jira_identifiers_supported
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = {'label': 'Synthetic Jira fixture', 'context': {'site_url': 'https://fixture.atlassian.net', 'project_key': 'LAB'}}
@@ -78,7 +78,7 @@ async def evaluate(model):
         fixture=Fixture()
         history=[{'role':'user','content':'Tell me about LAB-73'},{'role':'assistant','content':'LAB-73 is the checkout API issue.'}] if label=='followup' else None
         try:
-            result=await run(question,CONFIG,'jira',TOOLS,fixture.execute,Client(timeout=180),jira_identifiers_supported,history)
+            result=await run(question,CONFIG,'jira',TOOLS,fixture.execute,get_client(timeout=180),jira_identifiers_supported,history)
             reached={name for name,_ in fixture.calls}
             paginated = not label.startswith('history') or any(name=='listJiraIssueChangelogs' and args.get('startAt',0)>0 for name,args in fixture.calls)
             passed=required<=reached and paginated and all(fragment.casefold() in result['answer'].casefold() for fragment in fragments) and result['status']=='answered'

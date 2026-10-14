@@ -4,7 +4,7 @@ import re
 import time
 import json
 import math
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 import logging
 import chromadb
 
@@ -27,7 +27,6 @@ from main.src.utils.schemas import REWRITE_SCHEMA, multi_queries_schema, EVIDENC
 # Logger
 logger = logging.getLogger(__name__)
 # Client
-ollama_client = Client(timeout=60)
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(JENNA_MEMORY)
 if not DB_PATH.is_absolute():
@@ -59,7 +58,7 @@ def create_embeddings(texts, batch_size=16):
     for start in range(0, len(texts), batch_size):
         text = texts[start:start+batch_size]
 
-        response = ollama_client.embed(
+        response = get_client().embed(
             model=EMBEDDING_MODEL,
             input=text
         )
@@ -88,7 +87,7 @@ def create_embedding(text):
     return create_embeddings([text])[0]
 
 def rewrite_search_query(question):
-    response = ollama_client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         messages=[
             {
@@ -124,7 +123,7 @@ def generate_multi_queries(question, num_queries=2):
 
     start = time.perf_counter()
 
-    response = ollama_client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         format=multi_queries_schema(num_queries),
         options={"temperature": 0},
@@ -169,7 +168,7 @@ def evidence_can_answer(question, results):
         for index, result in enumerate(results)
     ]
 
-    response = ollama_client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         format=EVIDENCE_SCHEMA,
         options={"temperature": 0},
@@ -307,7 +306,7 @@ def generate_document_answer(
     ):
         raise ValueError("required_parts must contain nonempty strings")
 
-    response = ollama_client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         format=generate_answer_schema(len(required_parts)),
         options={"temperature": 0},
@@ -471,7 +470,7 @@ def generate_document_answer(
 def verify_document_answer(question, answer, support, results=None):
 
 
-    response = ollama_client.chat(
+    response = get_client().chat(
         model=CHAT_MODEL,
         format=VERIFY_ANSWER_SCHEMA,
         options={"temperature": 0},

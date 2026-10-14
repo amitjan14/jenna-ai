@@ -4,6 +4,8 @@ import os
 import time
 from time import perf_counter
 import ollama
+import atexit
+from threading import Lock
 from main.src.utils.telemetry import record_call
 from main.src.engineering.tracing import current_trace, event
 from main.src.engineering.runtime import checkpoint
@@ -11,12 +13,15 @@ from main.src.engineering.runtime import checkpoint
 _provenance_cache = {}
 
 class Client:
-    def __init__(self, timeout=60):
-        self.client = ollama.Client(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-                                    timeout=timeout)
+    def __init__(self, timeout=60, host=None):
+        self.host = host or os.getenv('OLLAMA_HOST', 'http://localhost:11434')
+        self.client = ollama.Client(host=self.host, timeout=timeout)
+
+    def get_client(self):
+        return self.client
 
     def _record_provenance(self, model):
-        key=(os.getenv('OLLAMA_HOST','http://localhost:11434'),model)
+        key=(self.host, model)
         if current_trace.get():
             cached=_provenance_cache.get(key)
             if not cached or time.monotonic()-cached[0]>60:
@@ -88,3 +93,49 @@ class Client:
             return self.client.embed(**kwargs)
         finally:
             record_call(ModelOperation.EMBED, perf_counter() - start)
+
+    def list(self):
+        return self.client.list()
+
+    def show(self, *args, **kwargs):
+        return self.client.show(*args, **kwargs)
+
+    def ps(self):
+        return self.client.ps()
+
+    def generate(self, **kwargs):
+        """Administrative generation, used to unload models in benchmarks."""
+        return self.client.generate(**kwargs)
+
+    def close(self):
+        self.client._client.close()
+
+
+_clients = {}
+_clients_lock = Lock()
+
+
+def get_client(timeout=60):
+    """Reuse the measured wrapper per host, timeout and Ollama credential scope.
+
+    Request messages/options and metrics remain request-local. Different timeout
+    profiles use separate connection pools without mutating a shared transport.
+    """
+    host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
+    key = (host, timeout, os.getenv('OLLAMA_API_KEY'))
+    with _clients_lock:
+        if key not in _clients:
+            _clients[key] = Client(timeout=timeout, host=host)
+        return _clients[key]
+
+
+def close_clients():
+    """Close pooled transports at process shutdown or explicit service teardown."""
+    with _clients_lock:
+        clients = list(_clients.values())
+        _clients.clear()
+    for client in clients:
+        client.close()
+
+
+atexit.register(close_clients)

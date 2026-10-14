@@ -230,6 +230,12 @@ MCP_ANSWER_SCHEMA = {'type': 'object', 'properties': {'supported': {'type': 'boo
                  'required': ['supported', 'answer'], 'additionalProperties': False}
 
 
+class Calculation(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    expression:str=Field(min_length=1,max_length=200)
+    value:float=Field(strict=True,allow_inf_nan=False)
+
+
 class Message(BaseModel):
     model_config=ConfigDict(extra='forbid')
     role:Literal[Role.USER,Role.ASSISTANT]
@@ -242,6 +248,8 @@ class Message(BaseModel):
     results:list[dict]=Field(default_factory=list,max_length=40)
     support:list[dict]=Field(default_factory=list,max_length=40)
     mcp_evidence:list[dict]=Field(default_factory=list,max_length=40)
+    tools_used:list[str]=Field(default_factory=list,max_length=40)
+    calculation:Calculation|None=None
 
 class Ask(BaseModel):
     model_config=ConfigDict(extra='forbid')

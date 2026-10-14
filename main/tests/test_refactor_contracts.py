@@ -37,7 +37,7 @@ class RefactorContracts(unittest.TestCase):
 
     def test_release_fingerprint_includes_moved_registry(self):
         from main.src.engineering.release import manifest, sha
-        with patch('main.src.engineering.release.ollama.Client') as client:
+        with patch('main.src.engineering.release.get_client') as client:
             client.return_value.list.return_value.models=[]
             files=manifest()['files']
         self.assertEqual(files['main/mcp/servers.json'],sha(ROOT/'main/mcp/servers.json'))
@@ -80,7 +80,7 @@ class RefactorContracts(unittest.TestCase):
     def test_multi_query_prompt_uses_requested_question_and_count(self):
         from main.src.rag import rag_service as rag
         response={'message':{'content':json.dumps({'queries':['leave allowance','annual leave days']})}}
-        with patch.object(rag.ollama_client,'chat',return_value=response) as chat:
+        with patch.object(rag.get_client(),'chat',return_value=response) as chat:
             queries, seconds=rag.generate_multi_queries('What is the annual leave allowance?',num_queries=2)
             self.assertEqual(queries,['What is the annual leave allowance?','leave allowance','annual leave days'])
             self.assertGreaterEqual(seconds,0)

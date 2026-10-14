@@ -76,7 +76,8 @@ def main():
     parser.add_argument('--limit', type=int)
     args = parser.parse_args()
     import ollama
-    preflight=ollama.Client(host=os.getenv('OLLAMA_HOST','http://localhost:11434'),timeout=5)
+    from main.src.tools.llm import get_client
+    preflight=get_client(timeout=5)
     installed={m.model for m in preflight.list().models}
     for requested in {args.model, args.router_model or args.model, os.getenv('JENNA_EMBEDDING_MODEL','nomic-embed-text')}:
         if requested not in installed and requested+':latest' not in installed:

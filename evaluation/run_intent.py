@@ -35,7 +35,7 @@ def main():
         from main.src.agent.assistant_service import plan_request, run_assistant
         from main.src.integrations.mcp_client import load_servers, jira_identifiers_supported
         from main.src.integrations.mcp_agent import run
-        from main.src.tools.llm import Client
+        from main.src.tools.llm import get_client
         from main.src.rag.rag_service import collection, create_embeddings
         from evaluation.generalization import Scenario, CONFIG, TOOLS
         from main.src.engineering.release import manifest
@@ -58,7 +58,7 @@ def main():
         fixture_case = {'variant': 'normal'}
         def remote(question, server, history=None):
             fixture = Scenario(fixture_case)
-            return asyncio.run(run(question, CONFIG, server, TOOLS, fixture.execute, Client(timeout=180),
+            return asyncio.run(run(question, CONFIG, server, TOOLS, fixture.execute, get_client(timeout=180),
                                    jira_identifiers_supported, history))
         end_to_end = [
             ('flow-jira-vague', 'whats up with OPS-42', None, 'jira', ['Launch checkout API', 'In Progress']),

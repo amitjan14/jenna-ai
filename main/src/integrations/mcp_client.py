@@ -224,12 +224,12 @@ def answer_evidence(question, items):
 
 
 async def ask_legacy(name, question, history=None, model_client=None):
-    from main.src.tools.llm import Client
+    from main.src.tools.llm import get_client
     from main.src.utils.constants import CHAT_MODEL
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 4000:
         raise ValueError('MCP question must contain 1 to 4000 characters')
     config = load_servers()[name]
-    client = model_client or Client(timeout=60)
+    client = model_client or get_client(timeout=60)
     started = perf_counter()
     evidence, tools_used, calls = [], [], 0
     attempted = set()
@@ -333,7 +333,7 @@ async def ask_legacy(name, question, history=None, model_client=None):
 async def ask(name, question, history=None, model_client=None):
     """Use one general local tool-calling agent for every MCP server/question."""
     from main.src.integrations.mcp_agent import run
-    from main.src.tools.llm import Client
+    from main.src.tools.llm import get_client
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 4000:
         raise ValueError('MCP question must contain 1 to 4000 characters')
     config = load_servers()[name]
@@ -360,7 +360,7 @@ async def ask(name, question, history=None, model_client=None):
                 value=await retry_read(lambda:call_read_tool(session,tools,tool_name,arguments))
                 if stable and not value['is_error']:metadata_cache.put(cache_key,value,30)
                 return value
-            result=await run(question,config,name,tools,execute,model_client or Client(timeout=180),
+            result=await run(question,config,name,tools,execute,model_client or get_client(timeout=180),
                              jira_identifiers_supported if name=='jira' else None,history)
             trace.status=result['status'];result['trace_id']=trace.id
             return result

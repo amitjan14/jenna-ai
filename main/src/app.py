@@ -416,7 +416,8 @@ def render_pending_request():
             "mcp_evidence": result.get("mcp_evidence", []), "trace_id": result.get("trace_id"),
             "connection": result.get("connection"), "interpreted_question": result.get("interpreted_question"),
             "conversation_state": result.get("conversation_state"), "answer_kind": result.get("answer_kind"),
-            "results": result.get("results", []), "extractive_answer": result.get("extractive_answer")}
+            "results": result.get("results", []), "extractive_answer": result.get("extractive_answer"),
+            "calculation": result.get("calculation")}
     else:
         message = {"role": Role.ASSISTANT, "content": "Request " + job["status"].replace("_", " ") + ". You can retry.",
                    "status": job["status"], "trace_id": job_id}

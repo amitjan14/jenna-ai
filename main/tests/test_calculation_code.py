@@ -98,7 +98,7 @@ class CalculationCodeTests(unittest.TestCase):
 
     def test_local_agent_inline_help_skips_search_and_calculator(self):
         from main.src.agent import agent_service as agent
-        with patch.object(agent.client, 'chat', return_value={'message':{'content':'The syntax must be fixed first.'}}), \
+        with patch.object(agent.get_client(), 'chat', return_value={'message':{'content':'The syntax must be fixed first.'}}), \
              patch.object(agent, 'search_and_answer') as search, \
              patch.object(agent, 'run_calculation') as calculator:
             result = agent.run_agent(CODE_REQUEST)

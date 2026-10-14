@@ -4,16 +4,15 @@ from pathlib import Path
 from evaluation.run_mcp_agent import Fixture,TOOLS,CONFIG
 from main.src.integrations.mcp_agent import run
 from main.src.integrations.mcp_client import jira_identifiers_supported
-from main.src.tools.llm import Client
+from main.src.tools.llm import get_client
 
 
 async def benchmark(args):
-    import ollama
     os.environ['JENNA_MCP_MODEL']=args.model
-    connection=ollama.Client(timeout=180);rows=[]
+    connection=get_client(timeout=180);rows=[]
     async def request():
         fixture=Fixture()
-        return await run('What is the due date of LAB-73?',CONFIG,'jira',TOOLS,fixture.execute,Client(timeout=180),jira_identifiers_supported)
+        return await run('What is the due date of LAB-73?',CONFIG,'jira',TOOLS,fixture.execute,get_client(timeout=180),jira_identifiers_supported)
     await request() # Warm-up is recorded separately from measured warm samples.
     for mode in ['warm','cold_model']:
         for index in range(args.repeats):

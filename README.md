@@ -194,6 +194,11 @@ short-prompt registry. Some newly extracted Markdown files use soft line wrappin
 their loader folds those wraps to preserve the exact original model input.
 User text, chat history and retrieved evidence are assembled dynamically rather than
 saved as instruction files. The measured model client remains under `tools/llm.py`.
+All Ollama callers obtain the measured wrapper through `get_client(timeout=...)`
+from that module, including diagnostics and evaluation scripts. The provider reuses
+clients by host, timeout and credential scope, and closes their connection pools at
+process exit. It preserves per-request prompts, model options, streaming and metrics;
+it does not share conversation history or load an additional model per client.
 
 ## Numerical word problems and supplied code
 

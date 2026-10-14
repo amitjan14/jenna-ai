@@ -63,7 +63,7 @@ class EvidenceTests(unittest.TestCase):
 
     def answer(self,parts,required=None):
         response={'message':{'content':json.dumps({'parts':parts})}}
-        with patch.object(self.rag.ollama_client,'chat',side_effect=[response, {'message':{'content':json.dumps({'supported':True,'complete':True,'reason':'Direct evidence'})}}]):
+        with patch.object(self.rag.get_client(),'chat',side_effect=[response, {'message':{'content':json.dumps({'supported':True,'complete':True,'reason':'Direct evidence'})}}]):
             return self.rag.generate_document_answer('What is the budget?', [{'text':'The budget is 40 chunks.'}],required_parts=required)
 
     def test_valid_quote(self):
@@ -84,7 +84,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(self.answer([p,p],['A','B'])['status'],'invalid_response')
 
     def test_general_decomposition(self):
-        with patch.object(self.rag.ollama_client,'chat',return_value={'message':{'content':json.dumps({'parts':['What is the port?','Who is the owner?']})}}):
+        with patch.object(self.rag.get_client(),'chat',return_value={'message':{'content':json.dumps({'parts':['What is the port?','Who is the owner?']})}}):
             self.assertEqual(len(self.rag.plan_question_parts('What is the port and who is the owner?')),2)
 
 
@@ -126,7 +126,7 @@ class RoutingTests(unittest.TestCase):
     def test_factual_question_cannot_become_invented_arithmetic(self):
         from main.src.agent import agent_service as agent
         response={'message':{'content':json.dumps({'action':'calculator','expression':'24'})}}
-        with patch.object(agent.client,'chat',return_value=response):
+        with patch.object(agent.get_client(),'chat',return_value=response):
             self.assertEqual(agent.decide_action('What is my exact GPU model?')['action'],'search_documents')
 
     def test_current_compound_subject_preserves_all_clauses(self):
