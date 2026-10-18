@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .idea/
+.opencode/
 .DS_Store
 .env
 tmp
@@ -10,6 +11,7 @@ docs
 backup
 output
 reports
+graphify-out/cache
 main/jenna_memory/
 training/base_model/
 training/adapters*/
