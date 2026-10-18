@@ -97,8 +97,14 @@ def oauth_provider(config, storage, redirect=None, callback=None, port=8766):
         server_url=config['url'],
         client_metadata=OAuthClientMetadata(
             redirect_uris=[f'http://127.0.0.1:{port}/callback'],
-            client_name='Jenna AI', token_endpoint_auth_method='none', application_type='native'),
-        storage=storage, redirect_handler=redirect or needs_login, callback_handler=callback or needs_login)
+            client_name='Jenna AI',
+            token_endpoint_auth_method='none',
+            application_type='native'
+        ),
+        storage=storage,
+        redirect_handler=redirect or needs_login,
+        callback_handler=callback or needs_login
+    )
 
 
 class LoginCallback:
@@ -119,8 +125,11 @@ class LoginCallback:
                 if 'code' not in query or 'state' not in query:
                     self.send_error(400, 'Missing authorization code or state')
                     return
-                owner.result = AuthorizationCodeResult(code=query['code'][0], state=query['state'][0],
-                                                       iss=query.get('iss', [None])[0])
+                owner.result = AuthorizationCodeResult(
+                    code=query['code'][0],
+                    state=query['state'][0],
+                    iss=query.get('iss', [None])[0]
+                )
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b'Jenna received the callback. You can close this tab.')

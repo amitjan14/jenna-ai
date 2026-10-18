@@ -4,6 +4,7 @@ from main.src.utils.common_utils import load_prompt
 from main.src.utils.enums import PromptName
 from main.src.utils.enums import ExecutionStatus, ResultStatus, Role
 from main.src.utils.constants import DEFAULT_CHAT_MODEL, DEFAULT_MCP_CONTEXT_TOKENS
+import hashlib
 import asyncio
 import json
 import os
@@ -11,8 +12,10 @@ import time
 from time import perf_counter
 from main.src.utils.schemas import MCP_VERIFY_SCHEMA, MCP_REPAIR_SCHEMA, DISCOVER_TOOLS_SCHEMA, mcp_tool_definition, discovery_tool_definition
 from jsonschema import ValidationError
-
-
+from main.src.engineering.context import select_tools,fit_messages,summarize_history
+from main.src.engineering.runtime import checkpoint
+from main.src.engineering.tracing import event
+from jsonschema import validate
 
 SYSTEM = load_prompt(PromptName.MCP_AGENT)
 
@@ -40,23 +43,23 @@ def pending_pages(evidence):
     """Track the latest page per read/query, not an old first-page marker."""
     latest = {}
     for item in evidence:
-        if item['is_error']: continue
+        if item['is_error']:
+            continue
         arguments = {key: value for key, value in item.get('arguments', {}).items()
                      if key not in {'startAt', 'maxResults', 'nextPageToken'}}
         signature = (item['tool'], json.dumps(arguments, sort_keys=True))
         value = item['content']
-        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], dict): value = value[0].get('text', value)
-        if isinstance(value, dict): value = value.get('data', value)
-        if not isinstance(value, dict): continue
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], dict):
+            value = value[0].get('text', value)
+        if isinstance(value, dict):
+            value = value.get('data', value)
+        if not isinstance(value, dict):
+            continue
         latest[signature] = value.get('isLast') is False or bool(value.get('nextPageToken'))
     return [tool for (tool, _), incomplete in latest.items() if incomplete]
 
 
 async def run(question, config, name, tools, execute, client, identifier_check=None, history=None):
-    from main.src.engineering.context import select_tools,fit_messages,summarize_history
-    from main.src.engineering.runtime import checkpoint
-    from main.src.engineering.tracing import event
-    import hashlib
     event('agent_started',model=os.getenv('JENNA_MCP_MODEL',DEFAULT_CHAT_MODEL),
           prompt_version=hashlib.sha256(SYSTEM.encode()).hexdigest())
     started = perf_counter()
@@ -65,32 +68,64 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
     max_reads = int(os.getenv('JENNA_MCP_MAX_READS', '16'))
     if not 1 <= max_steps <= 20 or not 1 <= max_reads <= 40:
         raise ValueError('Invalid MCP agent budget')
-    selected,remaining_tools=select_tools(question,tools,history,limit=int(os.getenv('JENNA_TOOL_SCHEMA_LIMIT','8')))
+    selected,remaining_tools=select_tools(
+        question,
+        tools,
+        history,
+        limit=int(os.getenv('JENNA_TOOL_SCHEMA_LIMIT','8'))
+    )
     def rebuild_definitions():
         result=[mcp_tool_definition(tool.name, tool.description, tool.input_schema) for tool in selected]
         if remaining_tools:
             result.append(discovery_tool_definition())
         return result
     definitions=rebuild_definitions()
-    messages = [{'role': Role.SYSTEM, 'content': SYSTEM + instructions.MCP_CONFIGURED_CONTEXT_PREFIX + json.dumps(config.get('context', {}))}]
+    messages = [{
+        'role': Role.SYSTEM,
+        'content': SYSTEM + instructions.MCP_CONFIGURED_CONTEXT_PREFIX + json.dumps(config.get('context', {}))
+    }]
     summary=summarize_history(history)
-    if summary:messages.append({'role':Role.USER,'content':instructions.MCP_OLDER_CONTEXT_PREFIX+summary})
-    messages.extend({'role': m['role'], 'content': m['content'][:6000]} for m in (history or [])[-6:]
-                    if m.get('role') in {Role.USER, Role.ASSISTANT} and isinstance(m.get('content'), str))
-    messages.append({'role': Role.USER, 'content': question})
+    if summary:messages.append({
+        'role':Role.USER,
+        'content':instructions.MCP_OLDER_CONTEXT_PREFIX+summary
+    })
+    messages.extend(
+        {
+            'role': m['role'],
+            'content': m['content'][:6000]
+        } for m in (history or [])[-6:]
+            if m.get('role') in {Role.USER, Role.ASSISTANT}
+            and isinstance(m.get('content'), str)
+    )
+    messages.append({
+        'role': Role.USER,
+        'content': question
+    })
     references = question + '\n' + '\n'.join(m['content'][:6000] for m in (history or [])[-6:]
         if m.get('role') in {Role.USER, Role.ASSISTANT} and isinstance(m.get('content'), str))
     evidence, used, attempted, calls, reads = [], [], set(), 0, 0
     answer, status = '', ResultStatus.INSUFFICIENT_EVIDENCE
     for step in range(max_steps):
         checkpoint('planning',model=model,step=step)
-        prepared,compacted=fit_messages(messages,definitions,int(os.getenv('JENNA_MCP_CONTEXT_TOKENS',str(DEFAULT_MCP_CONTEXT_TOKENS))),
-                                       int(os.getenv('JENNA_MCP_OUTPUT_TOKENS','2048')),question)
+        prepared,compacted=fit_messages(
+            messages,
+            definitions,
+            int(os.getenv('JENNA_MCP_CONTEXT_TOKENS',str(DEFAULT_MCP_CONTEXT_TOKENS))),
+            int(os.getenv('JENNA_MCP_OUTPUT_TOKENS','2048')),
+            question
+        )
         if compacted:event('context_compacted',message_count=len(messages),retained=len(prepared))
-        response = await asyncio.to_thread(client.chat, model=model, messages=prepared, tools=definitions,
+        response = await asyncio.to_thread(
+            client.chat,
+            model=model,
+            messages=prepared,
+            tools=definitions,
             think=os.getenv('JENNA_MCP_THINK', 'false').lower() == 'true',
-            options={'temperature': 0, 'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
-                     'num_predict': int(os.getenv('JENNA_MCP_OUTPUT_TOKENS', '2048'))})
+            options={
+                'temperature': 0,
+                'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
+                'num_predict': int(os.getenv('JENNA_MCP_OUTPUT_TOKENS', '2048'))
+            })
         calls += 1
         message = message_dict(response['message'])
         tool_calls = message.get('tool_calls') or []
@@ -98,9 +133,15 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
             candidate = (message.get('content') or '').strip()
             remaining = pending_pages(evidence)
             if remaining and step < max_steps - 1 and reads < max_reads:
-                messages.append({'role': Role.ASSISTANT, 'content': candidate or instructions.MCP_RETRIEVED_FALLBACK})
-                messages.append({'role': Role.USER, 'content': instructions.MCP_INCOMPLETE_PREFIX
-                                 + ', '.join(remaining) + instructions.MCP_INCOMPLETE_SUFFIX})
+                messages.append({
+                    'role': Role.ASSISTANT,
+                    'content': candidate or instructions.MCP_RETRIEVED_FALLBACK
+                })
+                messages.append({
+                    'role': Role.USER,
+                    'content': instructions.MCP_INCOMPLETE_PREFIX
+                         + ', '.join(remaining) + instructions.MCP_INCOMPLETE_SUFFIX
+                })
                 continue
             if candidate and any(not item['is_error'] and not item.get('catalog_only') for item in evidence):
                 answer, status = candidate, ResultStatus.ANSWERED
@@ -120,7 +161,6 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
             try:
                 if isinstance(arguments, str): arguments = json.loads(arguments)
                 if tool_name=='discover_tools' and remaining_tools:
-                    from jsonschema import validate
                     validate(arguments,DISCOVER_TOOLS_SCHEMA)
                     additions,_=select_tools(arguments['query'],remaining_tools,limit=4)
                     selected.extend(additions)
@@ -129,19 +169,41 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
                     selected=foundation+[item for item in selected if item not in foundation][-max(1,cap-len(foundation)):]
                     remaining_tools=[item for item in tools if item not in selected]
                     definitions=rebuild_definitions()
-                    result={'tool':tool_name,'arguments':arguments,'is_error':False,'catalog_only':True,
-                            'content':{'tools':[{'name':item.name,'description':item.description,'input_schema':item.input_schema} for item in additions]}}
-                    evidence.append(result);messages.append({'role':Role.TOOL,'tool_name':tool_name,'content':json.dumps(result)})
+                    result={
+                        'tool':tool_name,
+                        'arguments':arguments,
+                        'is_error':False,
+                        'catalog_only':True,
+                        'content':{
+                            'tools':[
+                                {
+                                    'name':item.name,
+                                    'description':item.description,
+                                    'input_schema':item.input_schema
+                                } for item in additions
+                            ]
+                        }
+                    }
+                    evidence.append(result)
+                    messages.append({
+                        'role':Role.TOOL,
+                        'tool_name':tool_name,
+                        'content':json.dumps(result)
+                    })
                     event('tool_discovery',count=len(additions));continue
-                if tool is None: raise ValueError(instructions.MCP_UNKNOWN_CATALOG_TOOL)
-                if not isinstance(arguments, dict): raise ValueError(instructions.MCP_INVALID_ARGUMENT_OBJECT)
+                if tool is None:
+                    raise ValueError(instructions.MCP_UNKNOWN_CATALOG_TOOL)
+                if not isinstance(arguments, dict):
+                    raise ValueError(instructions.MCP_INVALID_ARGUMENT_OBJECT)
                 # Optional placeholders are not pagination tokens or meaningful filters.
                 required = tool.input_schema.get('required', [])
                 arguments = {key: value for key, value in arguments.items() if key in required or
                              value is not None and value not in ('', 'null', 'None', 'undefined')}
                 signature = (tool_name, json.dumps(arguments, sort_keys=True))
-                if signature in attempted: raise ValueError(instructions.MCP_DUPLICATE_READ)
-                if reads >= max_reads: raise ValueError(instructions.MCP_READ_BUDGET)
+                if signature in attempted:
+                    raise ValueError(instructions.MCP_DUPLICATE_READ)
+                if reads >= max_reads:
+                    raise ValueError(instructions.MCP_READ_BUDGET)
                 if identifier_check and not identifier_check(arguments, evidence, config, references):
                     raise ValueError(instructions.MCP_UNVERIFIED_READ_ID)
                 attempted.add(signature)
@@ -150,28 +212,53 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
                 stamp=time.perf_counter()
                 raw = await execute(tool_name, arguments)
                 result = {**raw, 'content': bounded(raw['content'])}
-                event('tool_finished',tool=tool_name,seconds=time.perf_counter()-stamp,
-                      output_bytes=len(json.dumps(raw['content'])),status='error' if raw['is_error'] else ExecutionStatus.COMPLETED)
+                event('tool_finished',
+                      tool=tool_name,
+                      seconds=time.perf_counter()-stamp,
+                      output_bytes=len(json.dumps(raw['content'])),
+                      status='error' if raw['is_error'] else ExecutionStatus.COMPLETED
+                )
                 used.append(f'{name}:{tool_name}')
             except ValidationError as error:
                 result['content'] = instructions.MCP_SCHEMA_ERROR_PREFIX + error.message[:500]
             except (ValueError, TypeError) as error:
                 result['content'] = str(error)[:500]
             evidence.append(result)
-            messages.append({'role': Role.TOOL, 'tool_name': tool_name, 'content': json.dumps(result, ensure_ascii=False)})
+            messages.append({
+                'role': Role.TOOL,
+                'tool_name': tool_name,
+                'content': json.dumps(result, ensure_ascii=False)
+            })
         if reads >= max_reads:
             break
     if not answer:
         # One final bounded synthesis without tools, so budget exhaustion cannot
         # silently trigger more network calls.
-        prepared, _ = fit_messages(messages, [], int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
-                                   2048, question)
-        response = await asyncio.to_thread(client.chat, model=model, messages=prepared + [
-            {'role': Role.USER, 'content': instructions.MCP_BUDGET_REACHED}],
-            think=False, options={'temperature': 0, 'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))), 'num_predict': 2048})
+        prepared, _ = fit_messages(
+            messages,
+            [],
+            int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
+            2048,
+            question
+        )
+        response = await asyncio.to_thread(
+            client.chat,
+            model=model,
+            messages=prepared + [{
+                'role': Role.USER,
+                'content': instructions.MCP_BUDGET_REACHED
+            }],
+            think=False,
+            options={
+                'temperature': 0,
+                'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
+                'num_predict': 2048
+            }
+        )
         calls += 1
         answer = (response['message'].get('content') or '').strip()
-        if answer and any(not item['is_error'] and not item.get('catalog_only') for item in evidence): status = ResultStatus.ANSWERED
+        if answer and any(not item['is_error'] and not item.get('catalog_only') for item in evidence):
+            status = ResultStatus.ANSWERED
     if not any(not item['is_error'] and not item.get('catalog_only') for item in evidence):
         if answer.endswith('?'):
             status = ResultStatus.NEEDS_CLARIFICATION
@@ -192,14 +279,28 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
         # unsupported answer into an answered request.
         async def verify(candidate_answer):
             return await asyncio.to_thread(client.chat, model=model, think=False, format=MCP_VERIFY_SCHEMA,
-            messages=[{'role': Role.SYSTEM, 'content': load_prompt(PromptName.MCP_VERIFY)},
-                      {'role': Role.USER, 'content': json.dumps({'question': question, 'conversation': references, 'candidate': candidate_answer,
-                                                            'evidence': verification_evidence,'omitted_results':verification_omitted}, ensure_ascii=False)}],
-            options={'temperature': 0, 'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))), 'num_predict': 1024})
+            messages=[{
+                'role': Role.SYSTEM,
+                'content': load_prompt(PromptName.MCP_VERIFY)
+            },
+            {
+                'role': Role.USER,
+                'content': json.dumps({
+                    'question': question,
+                    'conversation': references,
+                    'candidate': candidate_answer,
+                    'evidence': verification_evidence,
+                    'omitted_results':verification_omitted
+                }, ensure_ascii=False)
+            }],
+            options={
+                'temperature': 0,
+                'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
+                'num_predict': 1024
+            })
         check = await verify(answer)
         calls += 1
         try:
-            from jsonschema import validate
             verification = json.loads(check['message']['content'])
             validate(verification, MCP_VERIFY_SCHEMA)
             if not verification['supported']:
@@ -207,15 +308,31 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
                 # This never turns an unchecked candidate into an accepted answer.
                 checkpoint('repairing_answer', model=model)
                 repair_schema = MCP_REPAIR_SCHEMA
-                repair = await asyncio.to_thread(client.chat, model=model, think=False, format=repair_schema,
-                    messages=[{'role': Role.SYSTEM, 'content':
-                        load_prompt(PromptName.MCP_REPAIR)},
-                        {'role': Role.USER, 'content': json.dumps({'question': question,
-                            'candidate': answer, 'rejection': verification['reason'],
+                repair = await asyncio.to_thread(
+                    client.chat,
+                    model=model,
+                    think=False,
+                    format=repair_schema,
+                    messages=[{
+                        'role': Role.SYSTEM,
+                        'content': load_prompt(PromptName.MCP_REPAIR)
+                    },
+                    {
+                        'role': Role.USER,
+                        'content': json.dumps({
+                            'question': question,
+                            'candidate': answer,
+                            'rejection': verification['reason'],
                             'evidence': [item for item in verification_evidence
-                                         if not item['is_error'] and not item.get('catalog_only')]}, ensure_ascii=False)}],
-                    options={'temperature': 0, 'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
-                             'num_predict': 1536})
+                                         if not item['is_error'] and not item.get('catalog_only')]
+                        }, ensure_ascii=False)
+                    }],
+                    options={
+                        'temperature': 0,
+                        'num_ctx': int(os.getenv('JENNA_MCP_CONTEXT_TOKENS', str(DEFAULT_MCP_CONTEXT_TOKENS))),
+                        'num_predict': 1536
+                    }
+                )
                 calls += 1
                 repaired = json.loads(repair['message']['content'])
                 validate(repaired, repair_schema)
@@ -240,8 +357,19 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
         except (ValueError, ValidationError):
             status = ResultStatus.INSUFFICIENT_EVIDENCE
             answer = 'The local model could not verify this answer. Please review the MCP tool evidence.'
-    return {'status': status, 'answer': answer or 'I could not retrieve evidence for this request.',
-        'tools_used': used, 'support': [], 'results': [], 'mcp_evidence': evidence,
+    return {
+        'status': status,
+        'answer': answer or 'I could not retrieve evidence for this request.',
+        'tools_used': used,
+        'support': [],
+        'results': [],
+        'mcp_evidence': evidence,
         'notices': [f'Connected directly to {config.get("label", name)}. Reasoning runs locally with {model}.'],
-        'metrics': {'total_seconds': perf_counter() - started, 'llm_calls': calls, 'mcp_reads': reads},
-        'model': model, 'rejection_reason': rejection_reason}
+        'metrics': {
+            'total_seconds': perf_counter() - started,
+            'llm_calls': calls,
+            'mcp_reads': reads
+        },
+        'model': model,
+        'rejection_reason': rejection_reason
+    }

@@ -3,8 +3,8 @@ from main.src.utils.enums import ResultStatus
 from main.src.utils import regex_constants as rx
 import json
 import re
-from datetime import date
-
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 def payload(result):
     content = result['content']
@@ -12,8 +12,10 @@ def payload(result):
         blocks = [block.get('text') for block in content if isinstance(block, dict) and block.get('type') == 'text']
         content = blocks[0] if len(blocks) == 1 else blocks
     if isinstance(content, str):
-        try: content = json.loads(content)
-        except ValueError: return {}
+        try:
+            content = json.loads(content)
+        except ValueError:
+            return {}
     if isinstance(content, dict):
         return content.get('data', content)
     return content
@@ -41,7 +43,14 @@ def quote_jql(value):
 
 def cell(value):
     # Jira strings are display data, never Markdown instructions.
-    return str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('|', '\\|').replace('\n', ' ').replace('[', '\\[').replace(']', '\\]')
+    return (str(value)
+            .replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('|', '\\|')
+            .replace('\n', ' ')
+            .replace('[', '\\[')
+            .replace(']', '\\]'))
 
 
 def due_label(fields):
@@ -74,9 +83,19 @@ async def assigned_work(question, config, execute):
         return data
 
     def outcome(answer, status=ResultStatus.ANSWERED, issues=None):
-        return {'status': status, 'answer': answer, 'tools_used': [f'jira:{item["tool"]}' for item in evidence],
-                'support': [], 'results': [], 'mcp_evidence': evidence, 'jira_issues': issues or [],
-                'notices': ['Connected directly to Jira. Active means Jira status category In Progress, including review and testing.']}
+        return {
+            'status': status,
+            'answer': answer,
+            'tools_used': [f'jira:{item["tool"]}' for item in evidence],
+            'support': [],
+            'results': [],
+            'mcp_evidence': evidence,
+            'jira_issues': issues or [],
+            'notices': [
+                'Connected directly to Jira. Active means Jira status category In Progress,'
+                ' including review and testing.'
+            ]
+        }
 
     try:
         resources = await read('getAccessibleAtlassianResources', {})
@@ -84,12 +103,19 @@ async def assigned_work(question, config, execute):
         sites = resources.get('resources', []) if isinstance(resources, dict) else resources
         matches = [item for item in (sites or []) if isinstance(item, dict) and item.get('url', '').rstrip('/') == site]
         if len(matches) != 1 or not matches[0].get('cloudId'):
-            return outcome('The configured Jira site was not uniquely available to your account.', ResultStatus.INSUFFICIENT_EVIDENCE)
+            return outcome(
+                'The configured Jira site was not uniquely available to your account.',
+                ResultStatus.INSUFFICIENT_EVIDENCE
+            )
         cloud_id = matches[0]['cloudId']
         current = await read('getJiraCurrentUser', {'cloudId': cloud_id})
         user = current
         if normalized(subject) not in {'me', 'i', 'myself', normalized(current.get('displayName', '')), normalized(current.get('emailAddress', ''))}:
-            found = await read('lookupJiraAccountId', {'cloudId': cloud_id, 'query': subject, 'maxResults': 10})
+            found = await read('lookupJiraAccountId', {
+                'cloudId': cloud_id,
+                'query': subject,
+                'maxResults': 10
+            })
             candidates = found if isinstance(found, list) else found.get('users', found.get('results', []))
             exact = [person for person in candidates if normalized(subject) in
                      {normalized(person.get('displayName', '')), normalized(person.get('emailAddress', ''))}]
@@ -98,16 +124,35 @@ async def assigned_work(question, config, execute):
             user = exact[0]
         account = user.get('accountId')
         if not account:
-            return outcome('Jira did not return an account ID for that user.', ResultStatus.INSUFFICIENT_EVIDENCE)
+            return outcome(
+                'Jira did not return an account ID for that user.',
+                ResultStatus.INSUFFICIENT_EVIDENCE
+            )
         project = config.get('context', {}).get('project_key')
         explicit = re.search(rx.JIRA_PROJECT, question)
         if explicit: project = explicit[1]
         scope = f'project = {quote_jql(project)} AND ' if project else ''
         jql = scope + f'assignee = {quote_jql(account)} AND statusCategory = "In Progress" ORDER BY duedate ASC, updated DESC'
-        search = await read('searchJiraIssuesUsingJql', {'cloudId': cloud_id, 'jql': jql, 'maxResults': 10,
-                         'fields': ['summary', 'status', 'duedate', 'assignee'], 'view': 'full'})
+        search = await read(
+            'searchJiraIssuesUsingJql',
+            {
+                'cloudId': cloud_id,
+                'jql': jql,
+                'maxResults': 10,
+                'fields': [
+                    'summary',
+                    'status',
+                    'duedate',
+                    'assignee'
+                ],
+                'view': 'full'
+            }
+        )
         if not isinstance(search, dict) or not isinstance(search.get('issues'), list):
-            return outcome('Jira did not return a usable issue search result.', ResultStatus.INSUFFICIENT_EVIDENCE)
+            return outcome(
+                'Jira did not return a usable issue search result.',
+                ResultStatus.INSUFFICIENT_EVIDENCE
+            )
         issues = search['issues'][:10]
         rows = []
         for issue in issues:
@@ -118,8 +163,17 @@ async def assigned_work(question, config, execute):
             # a full detail response can distinguish missing data from an unset date.
             if 'duedate' not in fields:
                 try:
-                    detail = await read('getJiraIssue', {'cloudId': cloud_id, 'issueIdOrKey': key,
-                        'fields': ['summary', 'status', 'duedate', 'assignee'], 'view': 'full'})
+                    detail = await read('getJiraIssue', {
+                        'cloudId': cloud_id,
+                        'issueIdOrKey': key,
+                        'fields': [
+                            'summary',
+                            'status',
+                            'duedate',
+                            'assignee'
+                        ],
+                        'view': 'full'
+                    })
                     if isinstance(detail, dict) and detail.get('key') == key:
                         fields = {**fields, **detail.get('fields', {})}
                 except ValueError:
@@ -131,15 +185,27 @@ async def assigned_work(question, config, execute):
             category = status.get('statusCategory') or {}
             if category.get('name') and category['name'] != 'In Progress':
                 continue
-            rows.append({'key': key, 'summary': fields.get('summary', ''), 'status': status.get('name', 'Unknown'),
-                         'due_date': fields.get('duedate'), 'due_date_returned': 'duedate' in fields,
-                         'due_label': due_label(fields), 'url': site + '/browse/' + key})
+            rows.append({
+                'key': key,
+                'summary': fields.get('summary', ''),
+                'status': status.get('name', 'Unknown'),
+                'due_date': fields.get('duedate'),
+                'due_date_returned': 'duedate' in fields,
+                'due_label': due_label(fields),
+                'url': site + '/browse/' + key
+            })
         label = cell(user.get('displayName', subject))
         project_label = cell(project or 'accessible projects')
         if not rows:
             if issues:
-                return outcome('The returned issues did not contain verified assignee information.', ResultStatus.INSUFFICIENT_EVIDENCE)
-            return outcome(f'No active issues were found for {label} in {project_label}. This excludes To Do and Done issues.')
+                return outcome(
+                    'The returned issues did not contain verified assignee information.',
+                    ResultStatus.INSUFFICIENT_EVIDENCE
+                )
+            return outcome(
+                f'No active issues were found for {label} in {project_label}. '
+                f'This excludes To Do and Done issues.'
+            )
         rows.sort(key=lambda row: (row['status'].casefold() != 'in progress', row['due_date'] or '9999-12-31'))
         answer = f'{label} has {len(rows)} active issues in {project_label}:\n\n| Issue | Work | Status | Due date |\n| --- | --- | --- | --- |\n'
         for row in rows:
@@ -170,9 +236,8 @@ def configured_cloud(resources, config):
 
 
 def sprint_date(value, timezone):
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    if not value: return 'Not returned by Jira'
+    if not value:
+        return 'Not returned by Jira'
     try:
         parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
         if parsed.tzinfo:
@@ -197,9 +262,16 @@ async def active_sprints(question, config, execute):
         return data
 
     def outcome(answer, status=ResultStatus.ANSWERED):
-        return {'status': status, 'answer': answer, 'tools_used': [f'jira:{item["tool"]}' for item in evidence],
-                'support': [], 'results': [], 'mcp_evidence': evidence, 'jira_sprints': rows,
-                'notices': ['Connected directly to Jira. Sprint state comes from Jira; dates alone do not establish an active sprint.']}
+        return {
+            'status': status,
+            'answer': answer,
+            'tools_used': [f'jira:{item["tool"]}' for item in evidence],
+            'support': [],
+            'results': [],
+            'mcp_evidence': evidence,
+            'jira_sprints': rows,
+            'notices': ['Connected directly to Jira. Sprint state comes from Jira; dates alone do not establish an active sprint.']
+        }
 
     try:
         cloud = configured_cloud(await read('getAccessibleAtlassianResources', {}), config)
@@ -226,8 +298,12 @@ async def active_sprints(question, config, execute):
                 failed = True
                 continue
             try:
-                sprints = await read('listJiraBoardSprints', {'cloudId': cloud, 'boardId': board_id,
-                                                           'state': 'active', 'maxResults': 20})
+                sprints = await read('listJiraBoardSprints', {
+                    'cloudId': cloud,
+                    'boardId': board_id,
+                    'state': 'active',
+                    'maxResults': 20
+                })
             except ValueError:
                 failed = True
                 continue
@@ -244,7 +320,11 @@ async def active_sprints(question, config, execute):
                 if existing:
                     existing['boards'].append(board.get('name', str(board_id)))
                 else:
-                    rows.append({**sprint, 'boards': [board.get('name', str(board_id))], 'board_id': board_id})
+                    rows.append({
+                        **sprint,
+                        'boards': [board.get('name', str(board_id))],
+                        'board_id': board_id
+                    })
         label = cell(project or 'the accessible project boards')
         if not rows:
             if failed or partial:
@@ -281,14 +361,33 @@ async def issue_details(question, config, execute):
             raise ValueError('Jira read failed')
         return data
     def outcome(answer, status=ResultStatus.ANSWERED):
-        return {'status': status, 'answer': answer, 'tools_used': [f'jira:{item["tool"]}' for item in evidence],
-                'support': [], 'results': [], 'mcp_evidence': evidence, 'notices': ['Connected directly to Jira.']}
+        return {
+            'status': status,
+            'answer': answer,
+            'tools_used': [f'jira:{item["tool"]}' for item in evidence],
+            'support': [],
+            'results': [],
+            'mcp_evidence': evidence,
+            'notices': ['Connected directly to Jira.']
+        }
     try:
         cloud = configured_cloud(await read('getAccessibleAtlassianResources', {}), config)
-        issue = await read('getJiraIssue', {'cloudId': cloud, 'issueIdOrKey': keys[0], 'view': 'full',
-                            'fields': ['summary', 'status', 'duedate', 'assignee']})
+        issue = await read('getJiraIssue', {
+            'cloudId': cloud,
+            'issueIdOrKey': keys[0],
+            'view': 'full',
+            'fields': [
+                'summary',
+                'status',
+                'duedate',
+                'assignee'
+            ]
+        })
         if not isinstance(issue, dict) or issue.get('key') != keys[0] or not isinstance(issue.get('fields'), dict):
-            return outcome('Jira did not return verified details for that issue.', ResultStatus.INSUFFICIENT_EVIDENCE)
+            return outcome(
+                'Jira did not return verified details for that issue.',
+                ResultStatus.INSUFFICIENT_EVIDENCE
+            )
         fields = issue['fields']
         site = config['context']['site_url'].rstrip('/')
         answer = f'[{keys[0]}]({site}/browse/{keys[0]}): **{cell(fields.get("summary", "Summary not returned"))}**\n\n'
@@ -297,4 +396,7 @@ async def issue_details(question, config, execute):
         answer += f'- Due date: **{due_label(fields)}**'
         return outcome(answer)
     except ValueError:
-        return outcome('Jira could not read that issue. See the tool evidence for the failed read.', ResultStatus.INSUFFICIENT_EVIDENCE)
+        return outcome(
+            'Jira could not read that issue. See the tool evidence for the failed read.',
+            ResultStatus.INSUFFICIENT_EVIDENCE
+        )

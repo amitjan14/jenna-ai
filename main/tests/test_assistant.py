@@ -57,14 +57,14 @@ class AssistantTests(unittest.TestCase):
 
     def test_ambiguous_subject_returns_focused_clarification_without_read(self):
         with patch('main.src.agent.assistant_service.load_servers', return_value=SERVERS), \
-             patch('main.src.integrations.mcp_client.run_mcp_question') as remote:
+             patch('main.src.agent.assistant_service.run_mcp_question') as remote:
             result = run_assistant('look up that ticket', model_client=Model(planned('', clarification='Which ticket do you mean?')))
         self.assertEqual(result['status'], 'needs_clarification')
         remote.assert_not_called()
 
     def test_automatic_dispatch_uses_jira_without_mode_selection(self):
         with patch('main.src.agent.assistant_service.load_servers', return_value=SERVERS), \
-             patch('main.src.integrations.mcp_client.run_mcp_question', return_value={'answer': 'Working', 'status': 'answered'}) as remote:
+             patch('main.src.agent.assistant_service.run_mcp_question', return_value={'answer': 'Working', 'status': 'answered'}) as remote:
             result = run_assistant('whats up with SPD-2631', model_client=Model(planned()))
         self.assertEqual(result['connection'], 'jira')
         remote.assert_called_once_with('Give an overview of SPD-2631.', 'jira', history=None)
@@ -75,7 +75,7 @@ class AssistantTests(unittest.TestCase):
                                  ({'filters': {'filename': 'a.pdf'}}, 'ticket overview')]:
             with self.subTest(question=question), \
                  patch('main.src.agent.assistant_service.load_servers', return_value=SERVERS), \
-                 patch('main.src.integrations.mcp_client.run_mcp_question') as remote, \
+                 patch('main.src.agent.assistant_service.run_mcp_question') as remote, \
                  patch('main.src.agent.assistant_service.run_agent', return_value={'answer': 'Quoted', 'status': 'passages_verified'}) as local:
                 result = run_assistant(question, model_client=Model(planned(question)), **kwargs)
             remote.assert_not_called()
@@ -85,7 +85,7 @@ class AssistantTests(unittest.TestCase):
     def test_explicit_connection_override_and_followup_metadata(self):
         history = [{'role': 'assistant', 'content': 'SPD-2631 is in progress', 'connection': 'jira'}]
         with patch('main.src.agent.assistant_service.load_servers', return_value=SERVERS), \
-             patch('main.src.integrations.mcp_client.run_mcp_question', return_value={'answer': 'History', 'status': 'answered'}) as remote:
+             patch('main.src.agent.assistant_service.run_mcp_question', return_value={'answer': 'History', 'status': 'answered'}) as remote:
             result = run_assistant('what changed?', connection='jira', history=history,
                                    model_client=Model(planned('Show SPD-2631 history.', connection='local')))
         self.assertEqual(result['connection'], 'jira')

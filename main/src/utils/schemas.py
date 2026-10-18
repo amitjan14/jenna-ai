@@ -187,16 +187,51 @@ def generate_answer_schema(required_parts: int) -> dict:
     }
 
 def assistant_schema(names: list[str]) -> dict:
-    return {'type': 'object', 'properties': {
-        'connection': {'type': 'string', 'enum': names},
-        'mode': {'type': 'string', 'enum': [mode.value for mode in SearchMode]},
-        'question': {'type': 'string', 'maxLength': 4000},
-        'clarification': {'type': 'string', 'maxLength': 500},
-        'intent': {'type': 'string', 'enum': [intent.value for intent in Intent]},
-        'memory_key': {'type': 'string', 'maxLength': 80},
-        'memory_value': {'type': 'string', 'maxLength': 1000},
-        'state': STATE_SCHEMA},
-        'required': ['connection', 'mode', 'question', 'clarification','intent','memory_key','memory_value','state'], 'additionalProperties': False}
+    return {
+        'type': 'object',
+        'properties': {
+            'connection': {
+                'type': 'string',
+                'enum': names
+            },
+            'mode': {
+                'type': 'string',
+                'enum': [mode.value for mode in SearchMode]
+            },
+            'question': {
+                'type': 'string',
+                'maxLength': 4000
+            },
+            'clarification': {
+                'type': 'string',
+                'maxLength': 500
+            },
+            'intent': {
+                'type': 'string',
+                'enum': [intent.value for intent in Intent]
+            },
+            'memory_key': {
+                'type': 'string',
+                'maxLength': 80
+            },
+            'memory_value': {
+                'type': 'string',
+                'maxLength': 1000
+            },
+            'state': STATE_SCHEMA
+        },
+        'required': [
+            'connection',
+            'mode',
+            'question',
+            'clarification',
+            'intent',
+            'memory_key',
+            'memory_value',
+            'state'
+        ],
+        'additionalProperties': False
+    }
 
 GROUNDED_VERIFY_SCHEMA = {'type': 'object', 'properties': {'supported': {'type': 'boolean'}, 'complete': {'type': 'boolean'},
                'reason': {'type': 'string'}}, 'required': ['supported', 'complete', 'reason'], 'additionalProperties': False}
