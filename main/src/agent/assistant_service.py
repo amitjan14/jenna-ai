@@ -22,14 +22,32 @@ from main.src.agent.conversation import (
     natural_summary,
 )
 from main.src.memory.note_memory import list_notes
+from main.src.memory.document_memory import load_document_records
 from main.src.integrations.mcp_client import load_servers, run_mcp_question
 from main.src.tools.calculator import parse_explicit_arithmetic, resolve_arithmetic_followup
-from main.src.agent.agent_utils import is_direct_conversation, is_local_code_request
+from main.src.agent.agent_utils import is_direct_conversation, is_local_code_request, needs_conversation_context
 from main.src.agent.agent_service import run_agent
 from main.src.rag.context import active_document_filter
+from main.src.integrations.jira_workflow import work_subject
 
 PRIVATE_SCOPE = re.compile(rx.PRIVATE_DOCUMENT_SCOPE, re.I)
 MEMORY_SCOPE = {Intent.MEMORY_READ, Intent.MEMORY_WRITE, Intent.MEMORY_DELETE}
+
+
+def has_jira_intent(question):
+    """A person's name alone does not establish a Jira lookup."""
+    return bool(re.search(rx.JIRA_SOURCE_INTENT, question, re.I)
+                or work_subject(question))
+
+
+def matches_uploaded_document(question, filenames):
+    terms = set(re.findall(rx.CONTEXT_WORD, question.casefold()))
+    # Filename subjects (e.g. Amit in a resume) help choose a source, never
+    # provide evidence for the answer itself.
+    ignored = {'pdf', 'the', 'and', 'from', 'with', 'document', 'documents', 'file'}
+    return any(terms & (set(re.findall(rx.CONTEXT_WORD, name.casefold())) - ignored)
+               for name in filenames)
+
 
 def plan_request(question, history=None, servers=None, model_client=None, state=None):
     # Checking Question and its character limit
@@ -61,6 +79,7 @@ def plan_request(question, history=None, servers=None, model_client=None, state=
     )
     # Getting recent messages from history related to question
     recent = context_messages(history, question)
+    filenames = list(load_document_records())
     checkpoint('interpreting_request', model=ROUTER_MODEL)
     # Calling LLM for getting plan action
     response = (model_client or get_client(timeout=90)).chat(
@@ -78,6 +97,7 @@ def plan_request(question, history=None, servers=None, model_client=None, state=
                     'question': question,
                     'history': recent,
                     'capabilities': capabilities,
+                    'uploaded_documents': filenames,
                     'state': state or EMPTY_STATE,
                     'saved_note_keys': list(list_notes())[:100]
                 }, ensure_ascii=False)
@@ -148,6 +168,40 @@ def plan_request(question, history=None, servers=None, model_client=None, state=
             mode=SearchMode.DOCUMENTS,
             intent=Intent.TASK
         )
+    # Gate automatic Jira routing using the user's request, not a model's
+    # invented interpretation. Only contextual follow-ups may inherit intent.
+    jira_forbidden = bool(re.search(rx.JIRA_NEGATION, question, re.I))
+    jira_intent = has_jira_intent(question) and not jira_forbidden
+    explicit_web = bool(re.search(rx.EXPLICIT_WEB_SCOPE, question, re.I))
+    profile_request = bool(re.search(rx.DOCUMENT_PROFILE_REQUEST, question, re.I))
+    document_followup = False
+    if needs_conversation_context(question):
+        previous = next((m for m in reversed(history or []) if m.get('role') == Role.ASSISTANT), {})
+        document_followup = (previous.get('connection') == Connection.LOCAL
+                             and previous.get('source_mode') == SearchMode.DOCUMENTS)
+        if not document_followup and not jira_forbidden and not profile_request:
+            # Only the active topic may supply a missing source. Old tickets
+            # elsewhere in history must not turn a new subject into a Jira read.
+            user_context = next((m['content'] for m in reversed(recent) if m['role'] == Role.USER), '')
+            if previous.get('connection') == 'jira':
+                jira_intent = jira_intent or has_jira_intent(user_context)
+            elif not previous and not user_context:
+                jira_intent = jira_intent or has_jira_intent(json.dumps(state or EMPTY_STATE))
+    if plan['intent'] not in {Intent.REWRITE, *MEMORY_SCOPE}:
+        document_subject = matches_uploaded_document(question, filenames)
+        # A PDF URL names a remote resource, not an uploaded local file.
+        local_references = re.sub(rx.URL_REFERENCE, '', question, flags=re.I)
+        explicit_documents = PRIVATE_SCOPE.search(question) or re.search(rx.PDF_FILENAME_REFERENCE, local_references, re.I)
+        if (explicit_documents or (not explicit_web and (
+                (document_followup and not jira_intent)
+                or (document_subject and not jira_intent)
+                or (plan['connection'] == 'jira' and not jira_intent)))):
+            plan.update(connection=Connection.LOCAL, mode=SearchMode.DOCUMENTS,
+                        intent=Intent.TASK)
+        elif explicit_web:
+            plan.update(connection=Connection.LOCAL, mode=SearchMode.WEB, intent=Intent.TASK)
+        elif work_subject(question) and 'jira' in servers and not jira_forbidden:
+            plan.update(connection='jira', mode=SearchMode.AUTO, intent=Intent.TASK)
     if is_local_code_request(question):
         plan.update(
             connection=Connection.LOCAL,
@@ -249,6 +303,8 @@ def run_assistant(question, history=None, connection=Connection.AUTO, mode=Searc
         plan['connection']=Connection.LOCAL
         if plan['intent'] == Intent.TASK:
             plan['mode'] = SearchMode.DOCUMENTS
+    if plan['connection'] == 'jira' and re.search(rx.JIRA_NEGATION, text, re.I):
+        plan.update(connection=Connection.LOCAL, mode=SearchMode.DOCUMENTS)
     checkpoint()
     if plan['clarification']:
         result = make_result(plan['clarification'], ResultStatus.NEEDS_CLARIFICATION, None)

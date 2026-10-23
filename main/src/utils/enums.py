@@ -176,6 +176,8 @@ class PromptName(StrEnum):
     RESOLVE_FOLLOWUP = 'resolve_followup_instructions'
     EVIDENCE = 'evidence_instructions'
     VERIFY_ANSWER = 'verify_answer_instructions'
+    PDF_VISION = 'pdf_vision_instructions'
+    PDF_VISUAL_VERIFY = 'pdf_visual_verify_instructions'
     SEARCH_AND_CALCULATE = 'search_and_calc_instructions'
     CALCULATION_PLAN = 'calculation_plan_instructions'
     ONLINE_SEARCH = 'online_search_instructions'

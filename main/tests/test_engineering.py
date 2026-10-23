@@ -69,7 +69,20 @@ class EngineeringTests(unittest.TestCase):
         draw.text((40,100),'Annual leave is 18 days',fill='black',font=font)
         stream=io.BytesIO();image.save(stream,format='PNG')
         document=pymupdf.open();page=document.new_page(width=800,height=200);page.insert_image(page.rect,stream=stream.getvalue())
-        text=layout_pages(io.BytesIO(document.tobytes()));self.assertTrue(text[0]['ocr']);self.assertIn('18',text[0]['text']);document.close()
+        with patch('main.src.rag.search_utils.PDF_VISION_MODE','off'):
+            text=layout_pages(io.BytesIO(document.tobytes()))
+        self.assertTrue(text[0]['ocr']);self.assertIn('18',text[0]['text']);document.close()
+
+    def test_pdf_columns_preserve_heading_and_skill_list_as_one_passage(self):
+        import pymupdf
+        from main.src.rag.search_utils import layout_pages
+        with pymupdf.open() as document:
+            page=document.new_page(width=600,height=800)
+            page.insert_text((35,100),'Career Objective\nSeeking a suitable placement.\nBuild a valuable skill set.')
+            page.insert_text((35,155),'Educational Background\nUniversity degree.')
+            page.insert_text((340,100),'Programming Languages\nAdvanced Java, Python,\nC++, TypeScript and JavaScript.')
+            text=layout_pages(io.BytesIO(document.tobytes()),tables=False)[0]['text']
+        self.assertIn('Programming Languages\nAdvanced Java, Python,\nC++, TypeScript and JavaScript.',text)
     def test_dataset_split_and_no_duplicates(self):
         from evaluation.generalization import load_dataset
         rows=load_dataset();self.assertEqual(len(rows),60);self.assertEqual(sum(r['split']=='heldout' for r in rows),18)

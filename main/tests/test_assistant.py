@@ -19,6 +19,77 @@ def planned(question='Give an overview of SPD-2631.', connection='jira', mode='A
 
 
 class AssistantTests(unittest.TestCase):
+    def setUp(self):
+        documents = patch('main.src.agent.assistant_service.load_document_records', return_value={})
+        documents.start()
+        self.addCleanup(documents.stop)
+
+    def test_skills_question_cannot_acquire_jira_tools(self):
+        question = 'What skills does amit have in context with data science'
+        for documents in ({}, {'Resume - Amit Nagarajan.pdf': {}}):
+            with self.subTest(documents=documents), \
+                 patch('main.src.agent.assistant_service.load_document_records', return_value=documents), \
+                 patch('main.src.agent.assistant_service.load_servers', return_value=SERVERS), \
+                 patch('main.src.agent.assistant_service.run_mcp_question') as remote, \
+                 patch('main.src.agent.assistant_service.run_agent', return_value={
+                     'answer': "I couldn't verify the answer against the uploaded documents.",
+                     'status': 'invalid_evidence'}) as local:
+                result = run_assistant(question, model_client=Model(planned(question)))
+            remote.assert_not_called()
+            self.assertEqual(result['connection'], 'local')
+            self.assertEqual(result['status'], 'invalid_evidence')
+            self.assertEqual(local.call_args.kwargs['search_mode'], 'Documents')
+
+    def test_uploaded_filename_subject_overrides_chat_or_web(self):
+        question = 'What skills does Amit have in data science?'
+        for intent, mode in [('chat', 'Auto'), ('task', 'Web')]:
+            candidate = planned(question, connection='local', mode=mode)
+            candidate['intent'] = intent
+            model = Model(candidate)
+            with patch('main.src.agent.assistant_service.load_document_records',
+                       return_value={'Resume - Amit Nagarajan.pdf': {}}), \
+                 patch.object(model, 'chat', wraps=model.chat) as chat:
+                result = plan_request(question, servers=SERVERS, model_client=model)
+            self.assertEqual((result['connection'], result['mode'], result['intent']),
+                             ('local', 'Documents', 'task'))
+            payload = json.loads(chat.call_args.kwargs['messages'][-1]['content'])
+            self.assertEqual(payload['uploaded_documents'], ['Resume - Amit Nagarajan.pdf'])
+
+    def test_filename_reference_stays_local_even_when_file_mentions_jira(self):
+        question = 'Jira experience in Resume - Amit Nagarajan.pdf'
+        result = plan_request(question, servers=SERVERS, model_client=Model(planned(question)))
+        self.assertEqual((result['connection'], result['mode']), ('local', 'Documents'))
+
+    def test_jira_work_intent_still_routes_with_resume_uploaded(self):
+        for question in ['What is Amit working on?', 'Show current sprints', 'Find issues assigned to Amit']:
+            with self.subTest(question=question), \
+                 patch('main.src.agent.assistant_service.load_document_records',
+                       return_value={'Resume - Amit Nagarajan.pdf': {}}):
+                result = plan_request(question, servers=SERVERS, model_client=Model(planned(question)))
+            self.assertEqual(result['connection'], 'jira')
+
+    def test_document_followup_does_not_inherit_old_jira_subject(self):
+        history = [{'role': 'user', 'content': 'Show SPD-2631'},
+                   {'role': 'assistant', 'content': 'Amit has Python skills.',
+                    'connection': 'local', 'source_mode': 'Documents'}]
+        result = plan_request('What about his experience with it?', history=history,
+                              servers=SERVERS, model_client=Model(planned('Explain his experience.')))
+        self.assertEqual((result['connection'], result['mode']), ('local', 'Documents'))
+
+    def test_explicit_jira_request_can_switch_away_from_documents(self):
+        history = [{'role': 'assistant', 'content': 'Amit knows Python.',
+                    'connection': 'local', 'source_mode': 'Documents'}]
+        result = plan_request('What is the status of this ticket SPD-2631?', history=history,
+                              servers=SERVERS, model_client=Model(planned()))
+        self.assertEqual(result['connection'], 'jira')
+
+    def test_jira_followup_inherits_user_established_subject(self):
+        history = [{'role': 'user', 'content': 'Show SPD-2631'},
+                   {'role': 'assistant', 'content': 'It is in progress.', 'connection': 'jira'}]
+        result = plan_request('What changed with it?', history=history,
+                              servers=SERVERS, model_client=Model(planned('History of SPD-2631')))
+        self.assertEqual(result['connection'], 'jira')
+
     def test_typo_interpretation_preserves_issue_and_numeric_anchors(self):
         plan = plan_request('histroy of SPD-2631', servers=SERVERS,
                             model_client=Model(planned('Show the history of SPD-2631.')))

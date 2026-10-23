@@ -1,5 +1,7 @@
 from pypdf import PdfReader
 from pathlib import Path
+import re
+from main.src.utils import regex_constants as rx
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTRUCTIONS_PATH = BASE_DIR / "../../instructions"
@@ -37,12 +39,12 @@ def split_text(text, chunk_size=200, overlap=40):
     ):
         raise ValueError("Require chunk_size > 0 and 0 <= overlap < chunk_size")
 
-    words = text.split()
+    words = list(re.finditer(rx.NONSPACE_WORD, text))
     chunks = []
 
     for start in range(0, len(words), chunk_size - overlap):
         end = min(start + chunk_size, len(words))
-        chunk = " ".join(words[start:end])
+        chunk = text[words[start].start():words[end-1].end()]
 
         chunks.append(chunk)
         if end == len(words):

@@ -632,6 +632,9 @@ def run_agent(
             )
 
             result["retrieval_trace"] = retrieval_trace
+            result["rejection_reason"] = document_answer.get("rejection_reason", "")
+            if not document_answer["answerable"]:
+                result["retrieved_sources"] = results
             return result
 
         messages = [

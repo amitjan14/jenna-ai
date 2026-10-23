@@ -1,3 +1,20 @@
+import logging
+import sys
+
+logger = logging.getLogger("jenna")
+logger.setLevel(logging.DEBUG)
+logger.propagate = False
+
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s [%(threadName)s] %(message)s"
+    ))
+    logger.addHandler(handler)
+
+logger.debug("Jenna logging enabled")
+print("app.py executed", flush=True)
+
 import hashlib
 import os
 import sys
@@ -19,7 +36,7 @@ import asyncio
 from main.src.memory.chat_memory import list_chats, create_chat, save_message
 from main.src.memory.document_memory import load_document_records, load_document_pdf
 from main.src.rag.document_store import index_and_store_document, delete_document
-from main.src.utils.constants import CHAT_MODEL, ROUTER_MODEL
+from main.src.utils.constants import CHAT_MODEL, ROUTER_MODEL, DOCUMENT_PARSER_VERSION, DOCUMENT_CHUNKING_VERSION, EMBEDDING_MODEL
 from main.src.utils.session_util import play_spoken_reply, display_passages, delete_saved_chat, select_chat, \
     clear_active_chat, start_new_chat, display_retrieval_failure
 from main.src.tools.voice import transcribe_audio
@@ -210,6 +227,7 @@ with st.sidebar:
         accept_multiple_files=True,
         key=f"pdf_uploader_{st.session_state.pdf_uploader_version}",
     )
+    st.caption('PDFs can contain typed notes, scans, handwritten notes, screenshots and diagrams. Visual reading runs locally.')
 
     if "processed_uploads" not in st.session_state:
         st.session_state.processed_uploads = set()
@@ -218,16 +236,17 @@ with st.sidebar:
         for uploaded_file in uploaded_files:
             pdf_bytes = uploaded_file.getvalue()
             content_hash = hashlib.sha256(pdf_bytes).hexdigest()
-            upload_key = (uploaded_file.name, content_hash)
+            upload_key = (uploaded_file.name, content_hash, DOCUMENT_PARSER_VERSION, DOCUMENT_CHUNKING_VERSION, EMBEDDING_MODEL)
 
             if upload_key in st.session_state.processed_uploads:
                 continue
 
             try:
-                result = index_and_store_document(
-                    pdf_bytes,
-                    uploaded_file.name,
-                )
+                with st.spinner(f'Reading and indexing {uploaded_file.name}…'):
+                    result = index_and_store_document(
+                        pdf_bytes,
+                        uploaded_file.name,
+                    )
 
                 st.session_state.processed_uploads.add(upload_key)
 
@@ -240,6 +259,10 @@ with st.sidebar:
                         f"Indexed {uploaded_file.name}: "
                         f"{result['chunk_count']} chunks"
                     )
+                if result.get('uncertain_pages'):
+                    st.warning('Some visual content could not be read confidently on page(s): '
+                               + ', '.join(map(str,result['uncertain_pages']))
+                               + '. Use a clearer scan for questions about those details.')
 
             except Exception as error:
                 st.error(

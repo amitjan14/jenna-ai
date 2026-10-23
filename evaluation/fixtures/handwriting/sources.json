@@ -1,0 +1,20 @@
+{
+  "looped_cursive.jpg": {
+    "description": "Human-written looped cursive, scanned, not a font-rendered fixture.",
+    "source": "https://commons.wikimedia.org/wiki/File:Looped_cursive_sample.jpg",
+    "download": "https://upload.wikimedia.org/wikipedia/commons/b/b2/Looped_cursive_sample.jpg",
+    "credit": "Handwriting uploaded by Thincat; text by John Mason Neale (1853).",
+    "license": "Public Domain Mark 1.0",
+    "license_url": "https://creativecommons.org/publicdomain/mark/1.0/",
+    "modifications": "Original downloaded bytes unchanged; embedded in generated test PDFs."
+  },
+  "notebook.jpg": {
+    "description": "Photo of handwritten English notebook notes, not font-rendered text.",
+    "source": "https://commons.wikimedia.org/wiki/File:Notebook_with_english_handwriting.jpg",
+    "download": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/Notebook_with_english_handwriting.jpg/960px-Notebook_with_english_handwriting.jpg",
+    "credit": "Lewis Ronald (Wikimedia user 50N916), 25 June 2012.",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+    "modifications": "Wikimedia-generated 960px thumbnail, downloaded unchanged. Test PDFs embedding this image retain this attribution and image license."
+  }
+}

@@ -1,226 +1,245 @@
-# Graph Report - jenna-ai  (2026-10-18)
+# Graph Report - jenna-ai  (2026-10-23)
 
 ## Corpus Check
-- 117 files · ~80,586 words
+- 128 files · ~114,403 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .example 1, .jsonl 1)
 
 ## Summary
-- 903 nodes · 2770 edges · 66 communities (28 shown, 38 thin omitted)
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 208 edges (avg confidence: 0.92)
+- 1033 nodes · 3133 edges · 70 communities (32 shown, 38 thin omitted)
+- Extraction: 93% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 221 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c7f8641e`
+- Built from commit: `3123f536`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- assistant_service.py
+- run_assistant
+- os
 - run
-- schemas.py
-- json
-- pathlib
-- argparse
-- instrument_request
+- document_store.py
+- jira_identifiers_supported
+- test_engineering.py
+- FileTokenStorage
 - jira_workflow.py
 - OutboundTests
-- chat_memory.py
-- JobManager
+- assistant_service.py
+- runtime.py
 - build_server
+- tempfile
+- sample_test.py
 - RefactorContracts
-- test_engineering.py
-- integrations/mcp_client.py
-- llm.py
-- test_core.py
 - app.py
-- voice.py
-- mcp_auth.py
+- run_agent.py
+- generalization.py
+- run_visual_documents.py
+- .test_validation_error_does_not_retry
 - MCP Protocol Tests
 - prepare_data.py
-- LoginCallback
-- Evidence Validation Tests
+- test_mcp_agent.py
+- EvidenceTests
 - Shared Client Tests
-- tracing.py
-- Table Relation Tests
-- Auto Search Behavior Tests
-- runtime.py
-- event
-- FileTokenStorage
-- Web Evidence Recovery Tests
-- Upload Deletion Tests
-- ConversationTests
+- cache.py
+- load_servers
+- LoginCallback
+- PersistentOAuthProvider
+- enums.py
+- IngestionTests
+- RoutingTests
+- Client
 - Jenna AI
-- generalization.py
-- ask_legacy
+- json
+- AutoSearchTests
 - Offline Evaluation Module
 - Engineering Runtime Controls
-- CoreTests
+- unittest
 - jenna_personality.md
+- VisualExtractionTests
 - AGENTS.md
 - datasets/README.md
-- run_mcp_question
+- integrations/mcp_client.py
+- WebTests
+- mcp_auth.py
+- WebEvidenceRecoveryTests
 
 ## God Nodes (most connected - your core abstractions)
-1. `run_assistant()` - 52 edges
-2. `get_client()` - 45 edges
-3. `run()` - 40 edges
-4. `Role` - 40 edges
+1. `run_assistant()` - 55 edges
+2. `get_client()` - 48 edges
+3. `Role` - 43 edges
+4. `run()` - 40 edges
 5. `ResultStatus` - 38 edges
-6. `load_prompt()` - 34 edges
-7. `PromptName` - 34 edges
-8. `run_agent()` - 31 edges
-9. `plan_request()` - 25 edges
-10. `build_server()` - 25 edges
+6. `plan_request()` - 37 edges
+7. `load_prompt()` - 37 edges
+8. `PromptName` - 37 edges
+9. `Model` - 32 edges
+10. `run_agent()` - 31 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Shared constants and patterns` --references--> `load_prompt()`  [INFERRED]
   README.md → main/src/utils/common_utils.py
-- `generate()` --calls--> `validate()`  [INFERRED]
-  main/src/integrations/mcp_client.py → training/validate_data.py
 - `experiment()` --indirect_call--> `manifest()`  [INFERRED]
   evaluation/generalization.py → main/src/engineering/release.py
 - `experiment()` --indirect_call--> `jira_identifiers_supported()`  [INFERRED]
   evaluation/generalization.py → main/src/integrations/mcp_client.py
+- `remote()` --indirect_call--> `jira_identifiers_supported()`  [INFERRED]
+  evaluation/run_intent.py → main/src/integrations/mcp_client.py
 - `main()` --calls--> `generate_document_answer()`  [EXTRACTED]
   evaluation/run_web_evidence.py → main/src/rag/rag_service.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (66 total, 38 thin omitted)
+## Communities (70 total, 38 thin omitted)
 
-### Community 0 - "assistant_service.py"
-Cohesion: 0.06
-Nodes (77): ast, jsonschema, clarification_selection(), decide_action(), Resolve an exact selection from 'Do you mean X or Y?'., resolve_followup(), run_agent(), search_and_answer() (+69 more)
+### Community 0 - "run_assistant"
+Cohesion: 0.07
+Nodes (12): matches_uploaded_document(), plan_request(), run_assistant(), verify(), exact_anchor_pattern(), ArithmeticFollowupTests, AssistantTests, Model (+4 more)
 
-### Community 1 - "run"
-Cohesion: 0.08
-Nodes (32): Scenario, benchmark(), request(), main(), Explicit cold-model and warmed-model latency measurements with local inference., main(), remote(), Actual local-model intent/typo checks, with isolated document and MCP fixtures. (+24 more)
+### Community 1 - "os"
+Cohesion: 0.15
+Nodes (11): ast, concurrent_futures, main(), Development regression: local numerical planning and inline-code assistance. No…, main(), Real-model web-evidence regression; Tavily transport alone is mocked., ClientArchitectureTests, Shared provider lifecycle and request isolation; no inference or network calls. (+3 more)
 
-### Community 2 - "schemas.py"
+### Community 2 - "run"
+Cohesion: 0.18
+Nodes (15): fit_messages(), Budgeted tool schemas and structured context compaction., select_tools(), summarize_history(), tokens(), bounded(), message_dict(), General local tool-calling agent driven by discovered MCP schemas. (+7 more)
+
+### Community 3 - "document_store.py"
 Cohesion: 0.12
-Nodes (23): BaseModel, fastapi, fastapi_responses, cancel(), health(), job(), job_events(), Loopback REST API for Jenna jobs, traces, and readiness. (+15 more)
+Nodes (18): add_document(), index_and_store_document(), _index_snapshot(), Remove partial replacement writes and restore even overlapping chunk IDs., _restore_index(), get_reranker(), layout_pages(), lexical_search() (+10 more)
 
-### Community 3 - "json"
-Cohesion: 0.06
-Nodes (63): chromadb, enum, main(), pdf(), Isolated RAG ablations: chunking, dense/hybrid retrieval, and reranking., worker(), main(), Evaluate the application's actual Chroma retrieval and reranker separately. (+55 more)
+### Community 4 - "jira_identifiers_supported"
+Cohesion: 0.16
+Nodes (15): benchmark(), request(), main(), Explicit cold-model and warmed-model latency measurements with local inference., evaluate(), Fixture, main(), Local-model generalization checks over synthetic Jira MCP responses. Real… (+7 more)
 
-### Community 4 - "pathlib"
-Cohesion: 0.09
-Nodes (27): asyncio, Sequential actual-model dialogue development evaluation, isolated from personal…, main(), Real-model web-evidence regression; Tavily transport alone is mocked., main(), A minimal MCP client that connects to Jenna via stdio or local HTTP., use_session(), huggingface_hub (+19 more)
-
-### Community 5 - "argparse"
-Cohesion: 0.08
-Nodes (27): argparse, contextlib, csv, main(), make_pdf(), Actual PDF ingestion and local-app evaluation on new documents, tables, and OCR., Export human review forms and compare human labels to automatic grades., assess() (+19 more)
-
-### Community 6 - "instrument_request"
-Cohesion: 0.23
-Nodes (6): instrument_request(), execute(), measured(), AssistantTests, Model, planned()
+### Community 5 - "test_engineering.py"
+Cohesion: 0.25
+Nodes (12): main(), make_pdf(), Actual PDF ingestion and local-app evaluation on new documents, tables, and OCR., io, behavior_fingerprint_matches(), gate(), manifest(), Content-addressed manifests and measurable release gates. (+4 more)
 
 ### Community 7 - "jira_workflow.py"
 Cohesion: 0.10
-Nodes (21): active_sprint_request(), active_sprints(), read(), assigned_work(), read(), cell(), configured_cloud(), due_label() (+13 more)
+Nodes (23): has_jira_intent(), A person's name alone does not establish a Jira lookup., active_sprint_request(), active_sprints(), read(), assigned_work(), read(), cell() (+15 more)
 
 ### Community 8 - "OutboundTests"
 Cohesion: 0.12
 Nodes (9): Model, OutboundTests, connection(), connection(), plan(), Session, HTTPIntegrationTests, client() (+1 more)
 
-### Community 9 - "chat_memory.py"
-Cohesion: 0.18
-Nodes (21): datetime, clear_chat_history(), delete_chat(), load_document_pdf(), load_document_records(), save_document(), database(), delete() (+13 more)
+### Community 9 - "assistant_service.py"
+Cohesion: 0.06
+Nodes (100): chromadb, jsonschema, logging, clarification_selection(), decide_action(), Resolve an exact selection from 'Do you mean X or Y?'., resolve_followup(), run_agent() (+92 more)
 
-### Community 10 - "JobManager"
-Cohesion: 0.18
-Nodes (4): JobManager, handler(), APITests, handler()
+### Community 10 - "runtime.py"
+Cohesion: 0.06
+Nodes (21): dataclasses, main(), turn(), Sequential actual-model dialogue development evaluation, isolated from personal…, natural_summary(), Synthesize a cited answer only after extractive evidence validation succeeds., JobManager, Control (+13 more)
 
 ### Community 11 - "build_server"
 Cohesion: 0.11
 Nodes (20): build_server(), ask_jenna(), backend(), calculate(), documents_data(), documents_resource(), forget_note(), list_chats() (+12 more)
 
-### Community 13 - "test_engineering.py"
-Cohesion: 0.15
-Nodes (6): copy, Small TTL cache for stable read metadata, scoped to connection credentials., TTLCache, layout_pages(), EngineeringTests, threading
-
-### Community 14 - "integrations/mcp_client.py"
+### Community 12 - "tempfile"
 Cohesion: 0.24
-Nodes (17): credential_key(), oauth_provider(), token_storage(), ask(), catalog(), connect(), discover(), load_servers() (+9 more)
+Nodes (9): asyncio, main(), A minimal MCP client that connects to Jenna via stdio or local HTTP., use_session(), mcp, mcp_client_stdio, mcp_client_streamable_http, socket (+1 more)
 
-### Community 15 - "llm.py"
-Cohesion: 0.12
-Nodes (11): atexit, checkpoint(), Client, close_clients(), Measured Ollama client shared by routing and evidence selection., Administrative generation, used to unload models in benchmarks., Close pooled transports at process shutdown or explicit service teardown., Collect token deltas while publishing bounded local job/UI progress. (+3 more)
+### Community 13 - "sample_test.py"
+Cohesion: 0.09
+Nodes (15): bm25_search(), embed_batch(), safe_embed(), embed_chunks(), parallel_embed(), evaluate_retrieval(), filter_results(), get_embedding() (+7 more)
 
-### Community 16 - "test_core.py"
-Cohesion: 0.19
-Nodes (10): memory_request(), forget_note(), list_notes(), note_details(), recall_note(), remember_note(), normalize_key(), AppSmokeTests (+2 more)
+### Community 14 - "RefactorContracts"
+Cohesion: 0.15
+Nodes (3): generate(), RefactorContracts, validate()
 
-### Community 17 - "app.py"
-Cohesion: 0.18
-Nodes (17): fragment, render_pending_request(), create_chat(), list_chats(), load_messages(), save_message(), delete_document(), Remove the saved PDF and index; restore index if SQLite deletion fails. (+9 more)
+### Community 15 - "app.py"
+Cohesion: 0.07
+Nodes (52): datetime, faster_whisper, fragment, functools, hashlib, kokoro, load_state(), save_state() (+44 more)
 
-### Community 18 - "voice.py"
-Cohesion: 0.11
-Nodes (14): faster_whisper, functools, io, kokoro, get_speech_pipeline(), get_transcriber(), prepare_speech_text(), synthesize_speech() (+6 more)
+### Community 16 - "run_agent.py"
+Cohesion: 0.14
+Nodes (14): collections, contextlib, assess(), main(), percentile(), Exercise the real app pipeline against an isolated, labeled synthetic corpus., main(), Evaluate the application's actual Chroma retrieval and reranker separately. (+6 more)
 
-### Community 19 - "mcp_auth.py"
-Cohesion: 0.17
-Nodes (10): http_server, httpx2, PersistentOAuthProvider, SDK OAuth storage and an interactive loopback login callback., Restore SDK refresh prerequisites that are otherwise process-local., mcp_client_auth, mcp_client_auth_oauth2, OAuthClientProvider (+2 more)
+### Community 17 - "generalization.py"
+Cohesion: 0.24
+Nodes (9): assess(), experiment(), load_dataset(), main(), Versioned, split-aware local-agent experiments over synthetic MCP fixtures., Scenario, main(), remote() (+1 more)
+
+### Community 18 - "run_visual_documents.py"
+Cohesion: 0.43
+Nodes (6): font(), main(), make_document(), raster(), Actual local-model PDF image/handwriting development checks in an isolated…, read_trace()
 
 ### Community 21 - "prepare_data.py"
-Cohesion: 0.21
-Nodes (15): collections, gc, random, statistics, main(), Compare the same MLX base weights with and without local adapters., score(), encode() (+7 more)
+Cohesion: 0.47
+Nodes (9): random, encode(), evidence_rules(), example(), prepare(), project_examples(), Build local multitask SFT data; source documents and chats never leave disk., route() (+1 more)
 
-### Community 25 - "tracing.py"
-Cohesion: 0.15
-Nodes (15): concurrent_futures, contextvars, Single-worker local request queue with progress and cooperative cancellation., connection(), db_path(), list_traces(), Local, content-minimized request traces. No prompts or tool outputs are stored., read_trace() (+7 more)
+### Community 22 - "test_mcp_agent.py"
+Cohesion: 0.20
+Nodes (6): pending_pages(), Track the latest page per read/query, not an old first-page marker., AgentTests, answer(), Model, tool_message()
 
-### Community 26 - "Table Relation Tests"
-Cohesion: 0.33
-Nodes (5): normalize(), Check short table values against their labels without model knowledge., table_relation_error(), table_field_pattern(), TableRelationTests
+### Community 25 - "cache.py"
+Cohesion: 0.22
+Nodes (5): copy, credential_key(), Small TTL cache for stable read metadata, scoped to connection credentials., TTLCache, threading
 
-### Community 28 - "runtime.py"
-Cohesion: 0.17
-Nodes (9): dataclasses, main(), turn(), Control, DeadlineExceeded, RuntimeError, Cooperative cancellation, deadlines, and read-only retry controls., RequestCancelled (+1 more)
+### Community 26 - "load_servers"
+Cohesion: 0.40
+Nodes (9): oauth_provider(), token_storage(), connect(), discover(), load_servers(), main(), execute(), required_env() (+1 more)
 
-### Community 29 - "event"
-Cohesion: 0.31
-Nodes (6): Retry transient transport failures only; caller must enforce read-only policy., retry_read(), event(), execute(), RetryTests, read()
+### Community 28 - "PersistentOAuthProvider"
+Cohesion: 0.50
+Nodes (3): PersistentOAuthProvider, Restore SDK refresh prerequisites that are otherwise process-local., OAuthClientProvider
+
+### Community 29 - "enums.py"
+Cohesion: 0.06
+Nodes (61): atexit, BaseModel, contextvars, enum, fastapi, fastapi_responses, importlib_metadata, Single-worker local request queue with progress and cooperative cancellation. (+53 more)
+
+### Community 33 - "Client"
+Cohesion: 0.10
+Nodes (8): Client, Administrative generation, used to unload models in benchmarks., Collect token deltas while publishing bounded local job/UI progress., record_call(), inner(), outer(), CoreTests, f()
 
 ### Community 34 - "Jenna AI"
 Cohesion: 0.14
 Nodes (13): Automatic intent and sources, Conversation and follow-ups, Direct MCP integrations, Engineering tools, Evaluate the current application, Jenna AI, Local fine-tuning, Numerical word problems and supplied code (+5 more)
 
-### Community 35 - "generalization.py"
-Cohesion: 0.48
-Nodes (6): assess(), experiment(), load_dataset(), main(), Versioned, split-aware local-agent experiments over synthetic MCP fixtures., hashlib
+### Community 35 - "json"
+Cohesion: 0.12
+Nodes (18): argparse, csv, main(), pdf(), Isolated RAG ablations: chunking, dense/hybrid retrieval, and reranking., worker(), Export human review forms and compare human labels to automatic grades., huggingface_hub (+10 more)
 
-### Community 36 - "ask_legacy"
-Cohesion: 0.33
-Nodes (7): answer_evidence(), ask_legacy(), execute_jira(), generate(), call_read_tool(), compact_evidence(), Keep relevant paragraphs within the small local model's context window.
+### Community 39 - "unittest"
+Cohesion: 0.24
+Nodes (7): flow_checks(), main(), pdf_bytes(), Auto source-boundary and full-flow development benchmarks using isolated PDFs.…, AutoBenchmarkScoringTests, The benchmark must not reward crashes, refusals, or another person's resume., unittest
 
 ### Community 40 - "jenna_personality.md"
 Cohesion: 0.40
 Nodes (4): Behavior, Document Handling & Constraints, Personality, Role & Identity
 
+### Community 42 - "VisualExtractionTests"
+Cohesion: 0.10
+Nodes (4): image_pdf(), VisualExtractionTests, VisualIndexTests, VisualVerificationTests
+
+### Community 46 - "integrations/mcp_client.py"
+Cohesion: 0.18
+Nodes (20): checkpoint(), Retry transient transport failures only; caller must enforce read-only policy., retry_read(), event(), answer_evidence(), ask(), execute(), ask_legacy() (+12 more)
+
+### Community 67 - "mcp_auth.py"
+Cohesion: 0.13
+Nodes (13): http_server, httpx2, Direct connections to external MCP servers., SDK OAuth storage and an interactive loopback login callback., ConfigTests, Outbound MCP contracts, bounded planning, and credential storage., mcp_client_auth, mcp_client_auth_oauth2 (+5 more)
+
 ## Knowledge Gaps
 - **17 isolated node(s):** `graphify`, `Run`, `Use`, `Evaluate the current application`, `Local fine-tuning` (+12 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 271 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 313 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **38 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `load_prompt()` connect `assistant_service.py` to `run`, `Jenna AI`, `json`, `ask_legacy`, `pathlib`, `build_server`, `RefactorContracts`, `integrations/mcp_client.py`?**
-  _High betweenness centrality (0.048) - this node is a cross-community bridge._
-- **Why does `run_assistant()` connect `assistant_service.py` to `run`, `schemas.py`, `json`, `pathlib`, `argparse`, `instrument_request`, `JobManager`, `integrations/mcp_client.py`, `llm.py`, `test_core.py`, `run_mcp_question`, `tracing.py`, `runtime.py`, `event`?**
-  _High betweenness centrality (0.041) - this node is a cross-community bridge._
-- **Why does `run()` connect `run` to `assistant_service.py`, `json`, `generalization.py`, `integrations/mcp_client.py`, `llm.py`, `tracing.py`, `event`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+- **Why does `load_prompt()` connect `assistant_service.py` to `run_assistant`, `run`, `Jenna AI`, `runtime.py`, `build_server`, `integrations/mcp_client.py`, `RefactorContracts`, `enums.py`?**
+  _High betweenness centrality (0.042) - this node is a cross-community bridge._
+- **Why does `run_assistant()` connect `run_assistant` to `os`, `unittest`, `assistant_service.py`, `runtime.py`, `integrations/mcp_client.py`, `app.py`, `generalization.py`, `run_visual_documents.py`, `load_servers`, `enums.py`?**
+  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+- **Why does `EvidenceTests` connect `EvidenceTests` to `assistant_service.py`?**
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
 - **Are the 6 inferred relationships involving `run_assistant()` (e.g. with `AnswerKind` and `Connection`) actually correct?**
   _`run_assistant()` has 6 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 5 inferred relationships involving `run()` (e.g. with `ExecutionStatus` and `PromptName`) actually correct?**
-  _`run()` has 5 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 27 inferred relationships involving `Role` (e.g. with `clarification_selection()` and `decide_action()`) actually correct?**
+  _`Role` has 27 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `graphify`, `Run`, `Use` to the rest of the system?**
   _17 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `assistant_service.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.058797524314765696 - nodes in this community are weakly interconnected._
+- **Should `run_assistant` be split into smaller, more focused modules?**
+  _Cohesion score 0.06862745098039216 - nodes in this community are weakly interconnected._

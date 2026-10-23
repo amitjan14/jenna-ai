@@ -4,6 +4,9 @@ import re
 import time
 import json
 import math
+import httpx2
+import ollama
+from jsonschema import validate, ValidationError
 from main.src.tools.llm import get_client
 import logging
 import chromadb
@@ -13,6 +16,8 @@ from sentence_transformers import CrossEncoder
 from functools import lru_cache
 from main.src.utils.common_utils import load_prompt
 from main.src.utils.diagnostics import debug
+from main.src.engineering.tracing import event
+from main.src.engineering.runtime import RequestCancelled, DeadlineExceeded
 from main.src.utils.constants import (
     JENNA_MEMORY,
     EMBEDDING_MODEL,
@@ -22,7 +27,7 @@ from main.src.utils.constants import (
     JENNA_DOCUMENT_CONFIGURATION,
 )
 from main.src.utils.schemas import REWRITE_SCHEMA, multi_queries_schema, EVIDENCE_SCHEMA, generate_answer_schema, \
-    VERIFY_ANSWER_SCHEMA
+    VERIFY_ANSWER_SCHEMA, generate_passage_choice_schema
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -80,6 +85,7 @@ def create_embeddings(texts, batch_size=16):
                 raise RuntimeError("Invalid embedding vector")
 
             embeddings.append(vector)
+    print(f"Created {len(embeddings)} embeddings : {embeddings}", flush=True)
     return embeddings
 
 
@@ -280,14 +286,37 @@ def generate_document_answer(
     results,
     system_prompt="",
     required_parts=None,
+    _selection_feedback=None,
 ):
     def reject(status, reason=""):
+        reason = reason or status.replace("_", " ")
+        if (_selection_feedback is None and results
+                and status in {"invalid_response", ResultStatus.INVALID_EVIDENCE}):
+            event('evidence_selection_rejected', status=status, reason=reason)
+            event('evidence_selection_repair', strategy='source_passage_selection')
+            try:
+                repaired = generate_document_answer(
+                    question, results, system_prompt, required_parts,
+                    _selection_feedback={
+                        "reason": reason,
+                        "instruction": "Select supporting passage_id integers from candidate_passages. "
+                                       "Return those integers in support, not quotations. "
+                                       "Choose at most four directly relevant passages per question part. "
+                                       "The application will copy the source text exactly.",
+                    },
+                )
+                if repaired["answerable"] or repaired['status'] == ResultStatus.INSUFFICIENT_EVIDENCE:
+                    return repaired
+            except (RequestCancelled, DeadlineExceeded):
+                raise
+            except (ConnectionError, TimeoutError, httpx2.TransportError, ollama.ResponseError) as error:
+                event('evidence_selection_repair_failed', error_type=type(error).__name__)
         return {
             "answerable": False,
             "answer": "",
             "support": [],
             "status": status,
-            "rejection_reason": reason or status.replace("_", " "),
+            "rejection_reason": reason,
         }
 
     if not results:
@@ -306,9 +335,20 @@ def generate_document_answer(
     ):
         raise ValueError("required_parts must contain nonempty strings")
 
+    candidates = []
+    if _selection_feedback is not None:
+        for source_id, source in enumerate(results):
+            for passage in re.split(rx.SOURCE_PASSAGE_BREAK, source['text']):
+                if passage.strip():
+                    candidates.append({'passage_id': len(candidates), 'source_id': source_id,
+                                       'text': passage.strip()})
+        if not candidates:
+            return reject(ResultStatus.INVALID_EVIDENCE, 'No source passages available for reselection.')
+    selection_schema = (generate_passage_choice_schema(len(required_parts), len(candidates))
+                        if candidates else generate_answer_schema(len(required_parts)))
     response = get_client().chat(
         model=CHAT_MODEL,
-        format=generate_answer_schema(len(required_parts)),
+        format=selection_schema,
         options={"temperature": 0},
         messages=[
             {
@@ -319,13 +359,16 @@ def generate_document_answer(
                 "role": Role.USER,
                 "content": json.dumps({
                     "question": question,
+                    "selection_feedback": _selection_feedback,
+                    "candidate_passages": candidates,
                     "required_parts": [
                         {"part_id": index, "question": part}
                         for index, part in enumerate(required_parts)
                     ],
                     "sources": [
                         {"source_id": index, "title": source.get("filename", ""),
-                         "kind": source.get("kind", SourceKind.DOCUMENT), "text": source["text"]}
+                         "kind": source.get("kind", SourceKind.DOCUMENT),
+                         "text": "See candidate_passages." if candidates else source["text"]}
                         for index, source in enumerate(results)
                     ],
                 }),
@@ -335,8 +378,18 @@ def generate_document_answer(
 
     try:
         draft = json.loads(response["message"]["content"])
+        if candidates:
+            validate(draft, selection_schema)
+            for part in draft['parts']:
+                part['support'] = [{'source_id': candidates[index]['source_id'],
+                                    'quote': candidates[index]['text']} for index in part['support']]
+    except ValidationError:
+        return reject(ResultStatus.INVALID_EVIDENCE, 'Invalid source passage selection.')
     except (json.JSONDecodeError, KeyError, TypeError):
-        return reject("invalid_response")
+        reason = ("Passage selection exceeded the model output limit."
+                  if response.get('done_reason') == 'length'
+                  else "Passage selection did not return valid structured JSON.")
+        return reject("invalid_response", reason)
 
     debug("PASSAGE SELECTION:")
     debug(json.dumps(draft, indent=2))
@@ -402,7 +455,8 @@ def generate_document_answer(
 
             if not matching_ids:
                 debug("QUOTE NOT FOUND:", repr(quote))
-                return reject(ResultStatus.INVALID_EVIDENCE)
+                reason = "A selected quotation was not an exact passage in the retrieved source text."
+                return reject(ResultStatus.INVALID_EVIDENCE, reason)
 
             source_id = item["source_id"]
 
@@ -520,4 +574,9 @@ def verify_document_answer(question, answer, support, results=None):
             "reason": "Invalid verification response",
         }
 
+    if verdict['supported'] and verdict['complete'] and results:
+        from main.src.rag.pdf_vision import verify_visual_sources
+        visual_verdict = verify_visual_sources(results, support)
+        if not visual_verdict['supported']:
+            return {'supported': False, 'complete': False, 'reason': visual_verdict['reason']}
     return verdict

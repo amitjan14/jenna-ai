@@ -76,6 +76,13 @@ VERIFY_ANSWER_SCHEMA = {
     "additionalProperties": False,
 }
 
+PDF_VISUAL_VERIFY_SCHEMA = {
+    'type': 'object',
+    'properties': {'reason': {'type': 'string', 'maxLength': 1600}, 'supported': {'type': 'boolean'}},
+    'required': ['reason', 'supported'],
+    'additionalProperties': False,
+}
+
 RESOLVE_FOLLOWUP_SCHEMA = {
     "type": "object",
     "properties": {
@@ -185,6 +192,17 @@ def generate_answer_schema(required_parts: int) -> dict:
         "required": ["parts"],
         "additionalProperties": False,
     }
+
+def generate_passage_choice_schema(required_parts: int, passage_count: int) -> dict:
+    schema = generate_answer_schema(required_parts)
+    support = schema['properties']['parts']['items']['properties']['support']
+    support['maxItems'] = 4
+    support['uniqueItems'] = True
+    support['items'] = {
+        'type': 'integer', 'minimum': 0, 'maximum': passage_count - 1,
+    }
+    return schema
+
 
 def assistant_schema(names: list[str]) -> dict:
     return {

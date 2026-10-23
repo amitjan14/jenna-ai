@@ -49,8 +49,23 @@ If basic web excerpts cannot support an answer, Jenna makes at most one advanced
 Tavily retry, requesting more relevant passages. This adds search latency and Tavily
 credits only on the recovery path. Failed answers show retrieved excerpts and the
 evidence-check reason in an expander. Saved PDFs
-can be downloaded or deleted. Scanned PDFs require OCR before upload; OCR is not
-implemented. Search results include supporting quotations and page references.
+can be downloaded or deleted. Typed PDFs keep their native text; image-based PDFs,
+handwritten notes, screenshots, ink annotations and diagrams use the configured
+local vision model. Mixed pages are read even when they already contain typed text.
+Visual-source answers are checked against the original page image before acceptance.
+Unclear handwriting is marked as illegible and the upload shows affected pages;
+clearer scans may be needed for those details. Search results include supporting
+quotations and page references. Re-upload older PDFs to refresh their visual index.
+Set `JENNA_PDF_VISION=off` to use printed-text Tesseract OCR instead, or `always` to
+read every nonblank page visually. `JENNA_VISION_MODEL` defaults to the chat model
+and must support image input; the installed Qwen 3.5 model does.
+
+Run `.venv/bin/python -m evaluation.run_visual_documents` for the visual-PDF
+development benchmark: typed notes, scans, mixed screenshots, handwriting-style
+notes, two human handwriting samples, diagrams, corrections, unreadable values,
+and image-embedded instructions. It uses isolated storage and actual local image
+inference, including verification against saved source pixels. Handwriting fixture
+attribution and licenses are in `evaluation/fixtures/handwriting/sources.json`.
 Document answers can become readable cited summaries after quotation checks and semantic
 verification; unsuccessful synthesis retains the original extractive answer.
 
@@ -165,6 +180,17 @@ a PDF, or an online fact without switching connection/mode first. A local intent
 interpreter handles ordinary typos and clear follow-ups; source controls remain optional
 overrides. See [natural requests and automatic sources](docs/DYNAMIC_ROUTING.md) for
 behavior, privacy, verification and evaluation limitations.
+
+Run `.venv/bin/python -m evaluation.run_auto_documents` for 33 Auto regression
+cases: 23 routing checks and 10 complete requests against two generated resumes.
+The benchmark uses real local inference and an isolated temporary document store;
+Jira and web are recorded fixtures. It checks exact quotations, correct-person
+citations, source overrides, prompt injection, missing facts, and multipart
+abstention. Invalid model responses do not count as successful abstentions.
+Use `--phase routing` or `--phase flow` to run one group and `--ids CASE_ID` to
+investigate a failure. Results are written incrementally to
+`reports/auto-documents-development.json`. These are authored development cases,
+not a production accuracy estimate.
 
 ## Conversation and follow-ups
 

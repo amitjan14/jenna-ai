@@ -4,6 +4,8 @@ from main.src.utils.enums import Action, AnswerKind, Connection, Intent, PromptN
 from main.src.utils import regex_constants as rx
 import json
 import re
+import httpx2
+import ollama
 from jsonschema import validate, ValidationError
 from main.src.utils.common_utils import make_result, load_prompt
 from main.src.utils.constants import CHAT_MODEL
@@ -13,6 +15,7 @@ from main.src.memory.note_memory import remember_note, recall_note, forget_note,
 from main.src.utils.common_utils import normalize_key
 from main.src.memory.memory_service import database
 from main.src.agent.agent_utils import is_local_code_request
+from main.src.engineering.runtime import RequestCancelled, DeadlineExceeded
 from main.src.integrations.mcp_agent import bounded
 
 EMPTY_STATE = {'goal': '', 'constraints': [], 'references': []}
@@ -251,7 +254,10 @@ def natural_summary(question, result, client=None):
                 'answer': draft['answer'],
                 'answer_kind': AnswerKind.GROUNDED_SUMMARY
             }
-    except (ValueError, TypeError, KeyError, IndexError, ValidationError):
+    except (RequestCancelled, DeadlineExceeded):
+        raise
+    except (ValueError, TypeError, KeyError, IndexError, ValidationError,
+            ConnectionError, TimeoutError, httpx2.TransportError, ollama.ResponseError):
         pass
     return result
 

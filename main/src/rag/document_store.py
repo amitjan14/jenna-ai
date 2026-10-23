@@ -103,6 +103,8 @@ def index_and_store_document(pdf_bytes, filename):
         "status": indexing_status,
         "chunk_count": chunk_count,
         "content_hash": content_hash,
+        "uncertain_pages": sorted({item['page'] for item in collection.get(
+            where={'filename': filename}, include=['metadatas'])['metadatas'] if item.get('visual_uncertainty')}),
     }
 
 def add_document(pdf_file, filename):
@@ -146,6 +148,9 @@ def add_document(pdf_file, filename):
                 "chunking_version": DOCUMENT_CHUNKING_VERSION,
                 "parser_version": DOCUMENT_PARSER_VERSION,
                 "ocr_used": page.get('ocr',False),
+                "vision_used": page.get('vision',False),
+                "visual_uncertainty": page.get('visual_uncertainty',False),
+                "extraction_method": page.get('extraction_method','native'),
                 "table_count": page.get('table_count',0),
             })
 
@@ -293,6 +298,7 @@ def search_documents(
                 continue
 
             dense_results.append({
+                **metadata,
                 "text": document,
                 "filename": metadata["filename"],
                 "page": metadata["page"],

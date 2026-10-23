@@ -10,6 +10,9 @@ from time import perf_counter
 from main.src.utils.telemetry import record_call
 from collections import Counter
 from main.src.utils.common_utils import split_text
+from main.src.utils.constants import PDF_VISION_MODE
+from main.src.rag.pdf_vision import read_visual_page
+from main.src.engineering.runtime import checkpoint
 
 def reciprocal_rank_fusion(ranked_results, k=60):
     """
@@ -45,11 +48,7 @@ def reciprocal_rank_fusion(ranked_results, k=60):
 
             if chunk_id not in fused:
                 fused[chunk_id] = {
-                    "text": result["text"],
-                    "filename": result["filename"],
-                    "page": result["page"],
-                    "chunk_index": result["chunk_index"],
-                    "similarity": result["similarity"],
+                    **result,
                     "rrf_score": rrf_score,
                 }
 
@@ -185,22 +184,66 @@ def layout_pages(pdf_file,ocr=True,tables=True):
             if Path(candidate).exists():tessdata=candidate;break
     with pymupdf.open(stream=raw,filetype='pdf') as document:
         for number,page in enumerate(document,start=1):
-            text=page.get_text(sort=True)
+            # Keep each layout block intact. Plain-text sorting interleaves
+            # lines from adjacent columns and can change heading/value relations.
+            blocks=page.get_text('blocks',sort=True)
+            text='\n\n'.join(block[4] for block in blocks if block[6]==0 and block[4].strip())
+            native_text=text
             used_ocr=False
-            if not text.strip() and ocr:
-                try:
-                    textpage=page.get_textpage_ocr(language='eng',dpi=200,full=True,tessdata=tessdata)
-                    text=page.get_text(textpage=textpage,sort=True);used_ocr=True
-                except Exception as error:
-                    raise ValueError('Local OCR failed. Install Tesseract and set TESSDATA_PREFIX to its language-data directory.') from error
+            used_vision=False
+            uncertain=False
+            method='native'
             table_text=[]
-            if tables and not used_ocr:
+            table_regions=[]
+            if tables:
                 for table in page.find_tables().tables:
                     rows=table.extract()
                     if not rows:continue
+                    bounds=pymupdf.Rect(table.bbox)
+                    table_regions.append(pymupdf.Rect(bounds.x0-2,bounds.y0-2,bounds.x1+2,bounds.y1+2))
                     clean=lambda row:' | '.join(str(cell or '').replace('\n',' ') for cell in row)
                     table_text.append('Table:\n'+ '\n'.join(clean(row) for row in rows))
+            images=page.get_image_info()
+            drawings=page.get_drawings()
+            annotations=list(page.annots() or [])
+            page_area=page.rect.width*page.rect.height
+            meaningful_images=any(pymupdf.Rect(item['bbox']).get_area() >= page_area*.03 for item in images)
+            ink=any(annotation.type[1] in {'Ink','FreeText','Stamp'} for annotation in annotations)
+            vector_regions=[drawing for drawing in drawings
+                            if drawing['rect'].width>3 and drawing['rect'].height>3
+                            and not any(bounds.contains(drawing['rect']) for bounds in table_regions)]
+            vector_content=len(vector_regions)>=3 or any(len(drawing['items'])>=8 for drawing in vector_regions)
+            visual=meaningful_images or ink or vector_content
+            has_content=bool(text.strip() or images or drawings or annotations)
+            if ocr and has_content and PDF_VISION_MODE!='off' and (PDF_VISION_MODE=='always' or visual or not text.strip()):
+                ocr_text=''
+                try:
+                    textpage=page.get_textpage_ocr(language='eng',dpi=200,full=not bool(native_text.strip()),tessdata=tessdata)
+                    ocr_text=page.get_text(textpage=textpage,sort=True)
+                except Exception:
+                    # Vision can read handwriting and diagrams without Tesseract.
+                    # A missing optional printed-text OCR engine must not hide it.
+                    pass
+                reading=read_visual_page(page)
+                if reading['text']:
+                    text += ('\n\nImage and handwriting reading:\n' if text.strip() else '') + reading['text']
+                if ocr_text.strip() and ' '.join(ocr_text.split()) not in ' '.join(text.split()):
+                    text+='\n\nAdditional OCR reading (verify against the original image):\n'+ocr_text
+                used_ocr=True
+                used_vision=True
+                uncertain=reading['has_uncertainty']
+                method='native+vision' if native_text.strip() else 'vision'
+            elif ocr and has_content and (visual or not text.strip()):
+                checkpoint('reading_pdf_ocr',page=number)
+                try:
+                    textpage=page.get_textpage_ocr(language='eng',dpi=200,full=not bool(native_text.strip()),tessdata=tessdata)
+                    text=page.get_text(textpage=textpage,sort=True)
+                    used_ocr=True
+                    method='native+tesseract' if native_text.strip() else 'tesseract'
+                except Exception as error:
+                    raise ValueError('Local OCR failed. Install Tesseract and set TESSDATA_PREFIX to its language-data directory.') from error
             if table_text:text+='\n\n'+'\n\n'.join(table_text)
-            if text.strip():pages.append({'page':number,'text':text,'ocr':used_ocr,'table_count':len(table_text)})
+            if text.strip():pages.append({'page':number,'text':text,'ocr':used_ocr,'vision':used_vision,
+                                         'visual_uncertainty':uncertain,'extraction_method':method,'table_count':len(table_text)})
     return pages
 

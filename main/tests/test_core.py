@@ -74,6 +74,84 @@ class EvidenceTests(unittest.TestCase):
         r=self.answer([{'part_id':0,'answerable':True,'support':[{'source_id':0,'quote':'The budget is 90 chunks.'}]}])
         self.assertEqual(r['status'],'invalid_evidence')
 
+    def test_interleaved_pdf_quote_is_reselected_and_verified(self):
+        source = {'text': 'Programming Languages :- Career & Build A Valuable Skill Set. '
+                          'Advanced Java, Python, C++.', 'filename': 'resume.pdf'}
+        def selection(quote):
+            return {'message': {'content': json.dumps({'parts': [
+                {'part_id': 0, 'answerable': True, 'support': [{'source_id': 0, 'quote': quote}]}]})}}
+        bad = selection('Programming Languages :- Advanced Java, Python, C++.')
+        good = {'message': {'content': json.dumps({'parts': [
+            {'part_id': 0, 'answerable': True, 'support': [1]}]})}}
+        verdict = {'message': {'content': json.dumps({'supported': True, 'complete': True, 'reason': 'Direct skills list'})}}
+        with patch.object(self.rag.get_client(), 'chat', side_effect=[bad, good, verdict]) as chat:
+            result = self.rag.generate_document_answer('What programming languages does Amit know?', [source])
+        self.assertTrue(result['answerable'])
+        self.assertEqual(result['answer'], 'Advanced Java, Python, C++.')
+        feedback = json.loads(chat.call_args_list[1].kwargs['messages'][-1]['content'])['selection_feedback']
+        self.assertIn('reason', feedback)
+        self.assertEqual(chat.call_count, 3)
+
+    def test_quote_repair_is_bounded_and_never_accepts_fabricated_evidence(self):
+        draft = {'message': {'content': json.dumps({'parts': [
+            {'part_id': 0, 'answerable': True, 'support': [{'source_id': 0, 'quote': 'Rust'}]}]})}}
+        with patch.object(self.rag.get_client(), 'chat', return_value=draft) as chat:
+            result = self.rag.generate_document_answer('What languages?', [{'text': 'Python, Java.'}])
+        self.assertEqual(result['status'], 'invalid_evidence')
+        self.assertEqual(result['support'], [])
+        self.assertEqual(chat.call_count, 2)
+        self.assertIn('exact passage', result['rejection_reason'])
+
+    def test_passage_repair_rejects_invalid_ids(self):
+        for invalid_id in [-1, 2, True, '0']:
+            draft = {'message': {'content': json.dumps({'parts': [
+                {'part_id': 0, 'answerable': True, 'support': [invalid_id]}]})}}
+            with self.subTest(invalid_id=invalid_id), \
+                 patch.object(self.rag.get_client(), 'chat', return_value=draft) as chat:
+                result = self.rag.generate_document_answer('What languages?', [{'text': 'Python.'}],
+                                                          _selection_feedback={'reason': 'repair'})
+            self.assertFalse(result['answerable'])
+            self.assertEqual(chat.call_count, 1)
+
+    def test_passage_repair_still_requires_semantic_verification(self):
+        choice = {'message': {'content': json.dumps({'parts': [
+            {'part_id': 0, 'answerable': True, 'support': [0]}]})}}
+        verdict = {'message': {'content': json.dumps({
+            'supported': False, 'complete': False, 'reason': 'Does not answer the question'})}}
+        with patch.object(self.rag.get_client(), 'chat', side_effect=[choice, verdict]):
+            result = self.rag.generate_document_answer('What languages?', [{'text': 'Amit lives in Chennai.'}],
+                                                      _selection_feedback={'reason': 'repair'})
+        self.assertEqual(result['status'], 'insufficient_evidence')
+        self.assertFalse(result['answerable'])
+
+    def test_truncated_or_malformed_selection_recovers_using_passage_ids(self):
+        choice = {'message': {'content': json.dumps({'parts': [
+            {'part_id': 0, 'answerable': True, 'support': [0]}]})}}
+        verdict = {'message': {'content': json.dumps({
+            'supported': True, 'complete': True, 'reason': 'Skills are listed'})}}
+        for bad_response in [
+            {'message': {'content': '{"parts":[{"support":'}, 'done_reason': 'length'},
+            {'message': {'content': 'not JSON'}},
+            {'message': {'content': json.dumps({'parts': []})}},
+        ]:
+            with self.subTest(bad_response=bad_response), \
+                 patch.object(self.rag.get_client(), 'chat', side_effect=[bad_response, choice, verdict]) as chat:
+                result = self.rag.generate_document_answer('What languages?', [{'text': 'Python, Java.'}])
+            self.assertTrue(result['answerable'])
+            self.assertEqual(result['answer'], 'Python, Java.')
+            self.assertEqual(chat.call_count, 3)
+            payload = json.loads(chat.call_args_list[1].kwargs['messages'][-1]['content'])
+            self.assertIn('reason', payload['selection_feedback'])
+            self.assertEqual(payload['candidate_passages'][0]['text'], 'Python, Java.')
+
+    def test_failed_malformed_response_repair_stops_after_one_attempt(self):
+        broken = {'message': {'content': '{'}, 'done_reason': 'length'}
+        with patch.object(self.rag.get_client(), 'chat', return_value=broken) as chat:
+            result = self.rag.generate_document_answer('What languages?', [{'text': 'Python.'}])
+        self.assertEqual(result['status'], 'invalid_response')
+        self.assertEqual(chat.call_count, 2)
+        self.assertIn('output limit', result['rejection_reason'])
+
     def test_missing_multipart_evidence_refuses(self):
         r=self.answer([{'part_id':0,'answerable':True,'support':[{'source_id':0,'quote':'The budget is 40 chunks.'}]},
                        {'part_id':1,'answerable':False,'support':[]}],['What is the budget?','What is the GPU?'])
