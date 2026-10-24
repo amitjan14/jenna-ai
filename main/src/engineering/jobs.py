@@ -60,11 +60,14 @@ class JobManager:
         token=active_control.set(control)
         try:
             control.check()
-            with self.lock:self.jobs[job_id]['status']=ExecutionStatus.RUNNING
+            with self.lock:
+                self.jobs[job_id]['status']=ExecutionStatus.RUNNING
+                queue_seconds = time.monotonic() - control.started
             with request_trace('job',job_id) as trace:
                 result=self.handler(payload)
                 control.check()
                 result['trace_id']=trace.id
+                result.setdefault('metrics', {})['queue_seconds'] = round(queue_seconds, 4)
                 trace.status=result.get('status',ExecutionStatus.COMPLETED)
             with self.lock:
                 self.jobs[job_id].update(

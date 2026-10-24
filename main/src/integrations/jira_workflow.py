@@ -21,6 +21,46 @@ def payload(result):
     return content
 
 
+def prepare_due_date_read(question, tool, arguments):
+    """Request the actual field; compact/evidence views may omit it entirely."""
+    if (not re.search(rx.JIRA_DUE_DATE_REQUEST, question, re.I)
+            or tool.name not in {'getJiraIssue', 'searchJiraIssuesUsingJql'}):
+        return arguments
+    arguments = dict(arguments)
+    properties = tool.input_schema.get('properties', {})
+    if 'view' in properties and 'full' in properties['view'].get('enum', ['full']):
+        arguments['view'] = 'full'
+    if 'fields' in properties:
+        fields = arguments.get('fields', ['summary', 'status', 'assignee'])
+        if isinstance(fields, list) and '*all' not in fields:
+            arguments['fields'] = fields + ([] if 'duedate' in fields else ['duedate'])
+    return arguments
+
+
+def due_date_facts(evidence):
+    """Expose field presence explicitly, preserving null versus omitted values."""
+    facts = {}
+    def visit(value):
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            key, fields = value.get('key'), value.get('fields')
+            if isinstance(key, str) and isinstance(fields, dict):
+                if 'duedate' in fields:
+                    facts[key] = {'issue': key, 'field': 'duedate', 'returned': True,
+                                  'value': fields['duedate']}
+                elif key not in facts:
+                    facts[key] = {'issue': key, 'field': 'duedate', 'returned': False}
+            for child in value.values():
+                if isinstance(child, (dict, list)):
+                    visit(child)
+    for item in evidence:
+        if not item.get('is_error') and not item.get('catalog_only'):
+            visit(payload(item))
+    return list(facts.values())
+
+
 def work_subject(question):
     text = question.strip().rstrip('?.!')
     match = re.search(rx.JIRA_PERSON_WORK, text, re.I)

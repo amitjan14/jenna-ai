@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step
 from main.src.utils.enums import PromptName, ResultStatus, Role, SourceKind
 from main.src.utils import regex_constants as rx
 import re
@@ -8,6 +9,8 @@ import httpx2
 import ollama
 from jsonschema import validate, ValidationError
 from main.src.tools.llm import get_client
+from main.src.rag.context import active_source_request
+from main.src.rag.citations import add_source_details, valid_page
 import logging
 import chromadb
 
@@ -45,11 +48,13 @@ collection = client.get_or_create_collection(
 )
 
 @lru_cache(maxsize=1)
+@timed_step('Load reranker weights (cache miss)')
 def get_reranker():
     return CrossEncoder(RERANKER_MODEL)
 
 MAX_BATCH_SIZE = client.get_max_batch_size()
 
+@timed_step('Create document embeddings')
 def create_embeddings(texts, batch_size=16):
     if not isinstance(batch_size, int) or batch_size <= 0:
         raise ValueError("Require batch_size > 0")
@@ -89,9 +94,11 @@ def create_embeddings(texts, batch_size=16):
     return embeddings
 
 
+@timed_step('Embed search query')
 def create_embedding(text):
     return create_embeddings([text])[0]
 
+@timed_step('Rewrite search query')
 def rewrite_search_query(question):
     response = get_client().chat(
         model=CHAT_MODEL,
@@ -123,6 +130,7 @@ def rewrite_search_query(question):
 
     return query
 
+@timed_step('Generate search variants')
 def generate_multi_queries(question, num_queries=2):
     if num_queries < 1:
         raise ValueError("num_queries must be positive")
@@ -165,6 +173,7 @@ def generate_multi_queries(question, num_queries=2):
 
     return queries, time.perf_counter() - start
 
+@timed_step('Check evidence coverage')
 def evidence_can_answer(question, results):
     if not results:
         return False
@@ -232,6 +241,7 @@ def evidence_can_answer(question, results):
     debug("Evidence validation passed")
     return True
 
+@timed_step('Plan question parts')
 def plan_question_parts(question):
     """Preserve explicit question clauses without asking a model to omit any."""
     clauses = re.split(
@@ -281,6 +291,30 @@ def table_relation_error(question, quote, source_text):
     return ""
 
 
+def visual_content_passage(question, results):
+    """For a uniquely named short image, read its transcription, not its label."""
+    request = active_source_request.get() or question
+    if not (re.search(rx.IMAGE_CONTENT_REQUEST, request, re.I)
+            or re.search(rx.SIGNED_MESSAGE_REQUEST, request, re.I)):
+        return None
+    words = ' ' + ' '.join(re.findall(rx.CONTEXT_WORD, question.lower().replace('_', ' '))) + ' '
+    matches = []
+    for source_id, source in enumerate(results):
+        if (not source.get('vision_used') or source.get('extraction_method') != 'vision'
+                or source.get('chunk_index') != 0 or source.get('visual_uncertainty')):
+            continue
+        # Additional OCR is explicitly unverified and is not the readable message.
+        text = source['text'].partition('\n\nAdditional OCR reading (')[0].strip()
+        if len(text.split()) >= 200:
+            continue  # Long/multi-chunk pages need ordinary evidence selection.
+        handles = re.findall(rx.SIGNED_HANDLE, text)
+        if any(' ' + ' '.join(re.findall(rx.CONTEXT_WORD, handle.lower().replace('_', ' '))) + ' '
+               in words for handle in handles):
+            matches.append({'source_id': source_id, 'quote': text})
+    return matches if len(matches) == 1 else None
+
+
+@timed_step('Select and assemble document evidence')
 def generate_document_answer(
     question,
     results,
@@ -335,6 +369,17 @@ def generate_document_answer(
     ):
         raise ValueError("required_parts must contain nonempty strings")
 
+    if _selection_feedback is None and len(required_parts) == 1:
+        transcription = visual_content_passage(question, results)
+        if transcription:
+            answer = add_source_details(active_source_request.get() or question,
+                                        transcription[0]['quote'], transcription, results)
+            verdict = verify_document_answer(question, answer, transcription, results=results)
+            if verdict['supported'] and verdict['complete']:
+                event('visual_transcription_selected', strategy='unique_signed_image')
+                return {'answerable': True, 'answer': answer, 'support': transcription,
+                        'status': ResultStatus.PASSAGES_VERIFIED, 'verbatim_transcription': True}
+
     candidates = []
     if _selection_feedback is not None:
         for source_id, source in enumerate(results):
@@ -360,6 +405,7 @@ def generate_document_answer(
                 "content": json.dumps({
                     "question": question,
                     "selection_feedback": _selection_feedback,
+                    "user_request": active_source_request.get() or question,
                     "candidate_passages": candidates,
                     "required_parts": [
                         {"part_id": index, "question": part}
@@ -367,6 +413,8 @@ def generate_document_answer(
                     ],
                     "sources": [
                         {"source_id": index, "title": source.get("filename", ""),
+                         "page": source.get("page"),
+                         "extraction_method": source.get("extraction_method", ""),
                          "kind": source.get("kind", SourceKind.DOCUMENT),
                          "text": "See candidate_passages." if candidates else source["text"]}
                         for index, source in enumerate(results)
@@ -508,7 +556,8 @@ def generate_document_answer(
         else:
             sections.append(text)
 
-    answer_text = "\n\n".join(sections)
+    answer_text = add_source_details(active_source_request.get() or question,
+                                     "\n\n".join(sections), all_support, results)
     verdict = verify_document_answer(question, answer_text, all_support, results=results)
     if not verdict["supported"] or not verdict["complete"]:
         return reject(ResultStatus.INSUFFICIENT_EVIDENCE, verdict["reason"])
@@ -521,8 +570,12 @@ def generate_document_answer(
     }
 
 
+@timed_step('Verify document answer')
 def verify_document_answer(question, answer, support, results=None):
-
+    if re.search(rx.SOURCE_PAGE_REQUEST, active_source_request.get() or question, re.I):
+        if not results or any(not valid_page(results[item['source_id']].get('page')) for item in support):
+            return {'supported': False, 'complete': False,
+                    'reason': 'The requested PDF page number is unavailable in the source metadata.'}
 
     response = get_client().chat(
         model=CHAT_MODEL,
@@ -538,12 +591,16 @@ def verify_document_answer(question, answer, support, results=None):
                 "content": json.dumps({
                     "question": question,
                     "answer": answer,
+                    "user_request": active_source_request.get() or question,
                     "quotations": [
                         item["quote"] for item in support
                     ],
                     "source_contexts": [
                         {"source_id": source_id,
                          "title": results[source_id].get("filename", ""),
+                         "page": results[source_id].get("page"),
+                         "kind": results[source_id].get("kind", SourceKind.DOCUMENT),
+                         "url": results[source_id].get("url"),
                          "text": results[source_id]["text"]}
                         for source_id in sorted({item["source_id"] for item in support})
                     ] if results else [],

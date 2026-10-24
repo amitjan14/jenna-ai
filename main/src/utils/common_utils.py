@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step
 from pypdf import PdfReader
 from pathlib import Path
 import re
@@ -17,6 +18,7 @@ def normalize_key(key):
 
     return key
 
+@timed_step('Extract native PDF text')
 def extract_pages(pdf_file):
     reader = PdfReader(pdf_file)
 
@@ -30,6 +32,7 @@ def extract_pages(pdf_file):
     return pages
 
 
+@timed_step('Split text into chunks')
 def split_text(text, chunk_size=200, overlap=40):
     if (
             not isinstance(chunk_size, int)

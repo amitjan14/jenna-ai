@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from main.src.utils.enums import Action, PromptName, SearchMode, Transport
+from main.src.utils.environment import tavily_api_key
 
 from main.src.utils.common_utils import load_prompt
 
@@ -43,7 +44,7 @@ def build_server(*, enable_memory=False, enable_chats=False, allow_writes=False,
             'capabilities':{'documents':True,Action.CALCULATOR:True,'memory':enable_memory,
                             'chats':enable_chats,'writes':allow_writes and enable_memory,
                             'web':enable_web},
-            'web_configured':bool(os.getenv('TAVILY_API_KEY')) if enable_web else False}
+            'web_configured':bool(tavily_api_key()) if enable_web else False}
 
     @server.tool(structured_output=True, annotations=read_only)
     def server_status() -> dict[str, Any]:

@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step
 """Local PDF image reading and verification against saved original page pixels."""
 import hashlib
 import json
@@ -16,6 +17,7 @@ from main.src.utils.schemas import PDF_VISUAL_VERIFY_SCHEMA
 from main.src.utils import instructions, regex_constants as rx
 
 
+@timed_step('Render PDF page for vision')
 def page_image(page, max_edge=2000):
     regions = [pymupdf.Rect(block[:4]) for block in page.get_text('blocks')
                if block[6] == 0 and block[4].strip()]
@@ -42,6 +44,36 @@ def page_image(page, max_edge=2000):
     return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=clip, alpha=False).tobytes('png')
 
 
+@timed_step('Render focused image views')
+def visual_page_images(page, max_details=2):
+    """Keep page context and zoom substantial images obscured by native headings.
+
+    Clips come from the same original page pixels, never an inferred transcript.
+    Image-only pages already fill their content crop and need no duplicate view.
+    """
+    images = [page_image(page)]
+    if not any(block[6] == 0 and block[4].strip() for block in page.get_text('blocks')):
+        return images
+    area = page.rect.get_area()
+    regions = []
+    for info in page.get_image_info():
+        region = pymupdf.Rect(info['bbox'])
+        if page.rotation:
+            region = region * page.rotation_matrix
+        region = region & page.rect
+        if region.is_empty or region.get_area() < area * .1:
+            continue
+        if any(region == previous for previous in regions):
+            continue
+        regions.append(region)
+    for region in sorted(regions, key=lambda box: box.get_area(), reverse=True)[:max_details]:
+        scale = min(3, 1800 / max(region.width, region.height))
+        images.append(page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=region,
+                                      alpha=False).tobytes('png'))
+    return images
+
+
+@timed_step('Transcribe page with vision')
 def read_visual_page(page):
     checkpoint('reading_pdf_image', page=page.number + 1, model=PDF_VISION_MODEL)
     try:
@@ -50,7 +82,7 @@ def read_visual_page(page):
             options={'temperature': 0, 'num_predict': 4096, 'num_ctx': 16384},
             messages=[{'role': Role.SYSTEM, 'content': load_prompt(PromptName.PDF_VISION)},
                       {'role': Role.USER, 'content': instructions.PDF_VISION_REQUEST,
-                       'images': [page_image(page)]}],
+                       'images': visual_page_images(page)}],
         )
         if response.get('done_reason') == 'length':
             raise ValueError('Visual page reading was truncated; no partial transcription was indexed.')
@@ -62,6 +94,7 @@ def read_visual_page(page):
     return {'text': text.strip(), 'has_uncertainty': bool(re.search(rx.VISUAL_UNCERTAINTY, text, re.I))}
 
 
+@timed_step('Verify answer against original images')
 def verify_visual_sources(results, support):
     pages = {}
     for item in support:
@@ -82,7 +115,7 @@ def verify_visual_sources(results, support):
                 options={'temperature': 0, 'num_predict': 512, 'num_ctx': 16384},
                 messages=[{'role': Role.SYSTEM, 'content': load_prompt(PromptName.PDF_VISUAL_VERIFY)},
                           {'role': Role.USER, 'content': json.dumps({'quotations': list(dict.fromkeys(quotes))}),
-                           'images': [page_image(document[number - 1])]}],
+                           'images': visual_page_images(document[number - 1])}],
             )
         try:
             verdict = json.loads(response['message']['content'])

@@ -25,14 +25,14 @@ load only when used. The existing environment already has the runtime dependenci
 than claiming to be a complete transitive dependency lock.
 
 Configuration is described in `.env.example`. Export variables before launching the app;
-the application does not automatically source `.env`. For example:
+only `TAVILY_API_KEY` also supports a literal value in the project `.env` file. Other settings must be exported. For example:
 
 ```sh
 export JENNA_CONTEXT_K=8
 export JENNA_CANDIDATE_K=40
 ```
 
-Web mode needs `TAVILY_API_KEY` in the environment. The resolved question is sent to
+Web mode reads `TAVILY_API_KEY` from the environment or the ignored project `.env` file. An explicitly exported value takes precedence; an empty exported value disables web access. The resolved question is sent to
 Tavily; document context and saved notes are not sent to the web-search service.
 A question can itself contain personal information. Without a key, web mode reports
 its configuration error. Document mode remains local.

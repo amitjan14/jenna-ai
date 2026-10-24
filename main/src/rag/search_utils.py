@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step, timed_call
 from main.src.utils.enums import ModelOperation
 from main.src.utils import regex_constants as rx
 import os
@@ -14,6 +15,7 @@ from main.src.utils.constants import PDF_VISION_MODE
 from main.src.rag.pdf_vision import read_visual_page
 from main.src.engineering.runtime import checkpoint
 
+@timed_step('Merge search results')
 def reciprocal_rank_fusion(ranked_results, k=60):
     """
     Combine multiple ranked retrieval lists using
@@ -71,6 +73,7 @@ def reciprocal_rank_fusion(ranked_results, k=60):
     return fused_results
 
 
+@timed_step('Rerank passages')
 def rerank_retrieved(question, retrieved, max_chunks=4):
     from main.src.rag.rag_service import get_reranker
     if max_chunks <= 0:
@@ -107,6 +110,7 @@ def rerank_retrieved(question, retrieved, max_chunks=4):
     return ranked[:max_chunks]
 
 
+@timed_step('Search lexical matches')
 def lexical_search(question, documents, metadatas , n_results):
     def tokenize(text):
         return re.findall(rx.WORD, text.casefold())
@@ -173,6 +177,7 @@ def section_chunks(text,chunk_size=200,overlap=20):
     return result
 
 
+@timed_step('Extract PDF pages')
 def layout_pages(pdf_file,ocr=True,tables=True):
     position=pdf_file.tell();pdf_file.seek(0)
     try:raw=pdf_file.read()
@@ -186,7 +191,7 @@ def layout_pages(pdf_file,ocr=True,tables=True):
         for number,page in enumerate(document,start=1):
             # Keep each layout block intact. Plain-text sorting interleaves
             # lines from adjacent columns and can change heading/value relations.
-            blocks=page.get_text('blocks',sort=True)
+            blocks=timed_call('Read native text blocks', page.get_text, 'blocks', sort=True)
             text='\n\n'.join(block[4] for block in blocks if block[6]==0 and block[4].strip())
             native_text=text
             used_ocr=False
@@ -196,7 +201,7 @@ def layout_pages(pdf_file,ocr=True,tables=True):
             table_text=[]
             table_regions=[]
             if tables:
-                for table in page.find_tables().tables:
+                for table in timed_call('Detect PDF tables', page.find_tables).tables:
                     rows=table.extract()
                     if not rows:continue
                     bounds=pymupdf.Rect(table.bbox)
@@ -218,7 +223,7 @@ def layout_pages(pdf_file,ocr=True,tables=True):
             if ocr and has_content and PDF_VISION_MODE!='off' and (PDF_VISION_MODE=='always' or visual or not text.strip()):
                 ocr_text=''
                 try:
-                    textpage=page.get_textpage_ocr(language='eng',dpi=200,full=not bool(native_text.strip()),tessdata=tessdata)
+                    textpage=timed_call('Tesseract OCR', page.get_textpage_ocr, language='eng',dpi=200,full=not bool(native_text.strip()),tessdata=tessdata)
                     ocr_text=page.get_text(textpage=textpage,sort=True)
                 except Exception:
                     # Vision can read handwriting and diagrams without Tesseract.
@@ -236,7 +241,7 @@ def layout_pages(pdf_file,ocr=True,tables=True):
             elif ocr and has_content and (visual or not text.strip()):
                 checkpoint('reading_pdf_ocr',page=number)
                 try:
-                    textpage=page.get_textpage_ocr(language='eng',dpi=200,full=not bool(native_text.strip()),tessdata=tessdata)
+                    textpage=timed_call('Tesseract OCR', page.get_textpage_ocr, language='eng',dpi=200,full=not bool(native_text.strip()),tessdata=tessdata)
                     text=page.get_text(textpage=textpage,sort=True)
                     used_ocr=True
                     method='native+tesseract' if native_text.strip() else 'tesseract'

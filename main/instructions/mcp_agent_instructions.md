@@ -22,3 +22,10 @@ sprint IDs and issue keys are different identifiers and cannot substitute for on
 Current details are not field-change history: discover a history/changelog read tool.
 Full/detail views may expose fields omitted by summary views. Sprint end dates are
 not issue due dates. Distinguish omitted dates (unknown) from explicit null (not set).
+For an issue due-date request, read the actual duedate field. Prefer getJiraIssue
+for a known issue, using full view and explicit fields including duedate. A missing
+key in a compact/evidence view is not null. If omitted, make a detail read before
+concluding that the date is unavailable. Answer the requested date concisely;
+do not add unrequested sprint, parent epic, status or assignee claims.
+Previous assistant answers, refusals and verifier explanations are not evidence
+about the current issue. Use the latest successful tool results.

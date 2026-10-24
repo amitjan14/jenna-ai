@@ -1,6 +1,6 @@
 from main.src.utils.enums import Action, PromptName, ResultStatus, SearchDepth, SourceKind
 import json
-import os
+from main.src.utils.environment import tavily_api_key
 
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
@@ -21,11 +21,11 @@ class WebSearchError(RuntimeError):
 def search_web(question, max_results=4, search_depth=SearchDepth.BASIC):
     if search_depth not in {SearchDepth.BASIC, SearchDepth.ADVANCED}:
         raise ValueError("Search depth must be basic or advanced")
-    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    api_key = tavily_api_key()
 
     if not api_key:
         raise WebSearchError(
-            "TAVILY_API_KEY is missing. Set it and restart Streamlit."
+            "TAVILY_API_KEY is missing. Set it in the environment or project .env file."
         )
 
     if not isinstance(question, str) or not question.strip():

@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step, timing_span
 """Direct MCP client: discovery, validated read tool calls, and local planning."""
 from main.src.utils import instructions
 from main.src.utils.common_utils import load_prompt
@@ -99,6 +100,7 @@ def permitted(tool, config):
     return bool(tool.annotations and tool.annotations.read_only_hint)
 
 
+@timed_step('Discover permitted MCP tools')
 async def catalog(session, config):
     tools, cursor, seen = [], None, set()
     for _ in range(20):
@@ -113,12 +115,14 @@ async def catalog(session, config):
     raise RuntimeError('MCP tool catalog exceeded pagination limit')
 
 
+@timed_step('Read MCP tool')
 async def call_read_tool(session, tools, name, arguments):
     tool = next((item for item in tools if item.name == name), None)
     if tool is None:
         raise ValueError('Tool is not in the permitted read catalog')
     validate(arguments, tool.input_schema)
-    result = await session.call_tool(name, arguments=arguments)
+    with timing_span(f'MCP tool: {name}', 'mcp.ClientSession.call_tool'):
+        result = await session.call_tool(name, arguments=arguments)
     content = result.structured_content
     if content is None:
         content = [
@@ -423,6 +427,7 @@ async def ask_legacy(name, question, history=None, model_client=None):
     }
 
 
+@timed_step('Connect and run MCP flow')
 async def ask(name, question, history=None, model_client=None):
     """Use one general local tool-calling agent for every MCP server/question."""
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 4000:

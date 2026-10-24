@@ -12,7 +12,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='jenna-web-eval-') as memory:
         os.environ['JENNA_MEMORY_PATH'] = memory
         from main.src.rag.rag_service import generate_document_answer
-        from main.src.agent import agent_service as agent
+        from main.src.tools import web_tools
         personality = (ROOT/'main/instructions/jenna_personality.md').read_text()
         question = 'what is the capital of japan?'
         cases = [
@@ -34,8 +34,8 @@ def main():
         base = {'kind':'web','filename':'About Japan | The Government of Japan',
                 'url':'https://www.japan.go.jp/japan/index.html', 'text':cases[3][1]}
         advanced = {**base, 'text':cases[1][1]}
-        with patch.object(agent,'search_web',side_effect=[[base],[advanced]]) as search:
-            result = agent.run_online_search(question,'web',personality)
+        with patch.object(web_tools,'search_web',side_effect=[[base],[advanced]]) as search:
+            result = web_tools.run_online_search(question,'web',personality)
         passed = result['status']=='passages_verified' and 'Tokyo' in result['answer'] and search.call_count==2
         rows.append({'case':'deeper-recovery','passed':passed,'result':result})
         report={'passed':sum(r['passed'] for r in rows),'total':len(rows),'rows':rows,

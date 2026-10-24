@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step
 from main.src.utils.enums import Action, FollowupStatus, PromptName, ResultStatus, Role, SearchMode
 from main.src.utils import regex_constants as rx
 import json
@@ -18,6 +19,7 @@ from main.src.utils.schemas import ROUTE_SCHEMA, RESOLVE_FOLLOWUP_SCHEMA
 from main.src.utils.telemetry import instrument_request
 
 
+@timed_step('Choose local action')
 def decide_action(question):
     if is_search_calculation_request(question):
         return {
@@ -143,6 +145,7 @@ def clarification_selection(question, history):
 
     return None
 
+@timed_step('Resolve follow-up')
 def resolve_followup(question, history=None):
     arithmetic = resolve_arithmetic_followup(question, history)
     if arithmetic is not None:
@@ -331,6 +334,7 @@ def resolve_followup(question, history=None):
 
     return payload
 
+@timed_step('Search and answer')
 def search_and_answer(original_question, search_query, system_prompt):
     results = search_documents(
         search_query,
@@ -355,6 +359,7 @@ def search_and_answer(original_question, search_query, system_prompt):
     return results, document_answer
 
 @instrument_request
+@timed_step('Execute local flow')
 def run_agent(
     question,
     system_prompt="",
@@ -632,6 +637,8 @@ def run_agent(
             )
 
             result["retrieval_trace"] = retrieval_trace
+            if document_answer.get('verbatim_transcription'):
+                result['verbatim_transcription'] = True
             result["rejection_reason"] = document_answer.get("rejection_reason", "")
             if not document_answer["answerable"]:
                 result["retrieved_sources"] = results

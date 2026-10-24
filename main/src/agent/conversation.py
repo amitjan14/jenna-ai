@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step
 """Local dialogue, bounded session state, evidence-preserving edits and summaries."""
 from main.src.utils import instructions
 from main.src.utils.enums import Action, AnswerKind, Connection, Intent, PromptName, ResultStatus, Role, SourceKind
@@ -82,6 +83,7 @@ def context_messages(history, question, max_chars=18000):
     return [selected[index] for index in sorted(selected)]
 
 
+@timed_step('Generate conversation answer')
 def general_reply(question, history=None, state=None, client=None):
     # Preference values stay in local generation; never put them in remote tool arguments.
     notes = dict(list(list_notes().items())[:20])
@@ -159,12 +161,14 @@ def _sources_from_message(message):
     return sources, support
 
 
+@timed_step('Verify final wording')
 def verify_grounded(question, answer, sources, support, client=None):
     schema = GROUNDED_VERIFY_SCHEMA
     relevant = [
         {
             'source_id': s['source_id'],
              'title': sources[s['source_id']].get('filename', ''),
+             'page': sources[s['source_id']].get('page'),
              'quote': s['quote'],
              'context': sources[s['source_id']].get('text', '')[:3500]
          } for s in support
@@ -197,6 +201,7 @@ def verify_grounded(question, answer, sources, support, client=None):
     return verdict
 
 
+@timed_step('Compose final answer')
 def natural_summary(question, result, client=None):
     """Synthesize a cited answer only after extractive evidence validation succeeds."""
     if (result.get('status') != ResultStatus.PASSAGES_VERIFIED
@@ -210,7 +215,8 @@ def natural_summary(question, result, client=None):
             'source_id': s['source_id'],
             'citation': f"[{s['source_id']+1}]",
             'quote': s['quote'],
-            'title': sources[s['source_id']].get('filename', '')
+            'title': sources[s['source_id']].get('filename', ''),
+            'page': sources[s['source_id']].get('page')
         } for s in support
     ]
     try:
@@ -262,6 +268,7 @@ def natural_summary(question, result, client=None):
     return result
 
 
+@timed_step('Rewrite conversation answer')
 def rewrite_reply(question, history, state=None, client=None):
     previous = next((m for m in reversed(history or []) if m.get('role') == Role.ASSISTANT and m.get('content')), None)
     if not previous:

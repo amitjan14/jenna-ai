@@ -1,3 +1,5 @@
+from main.src.utils.telemetry import instrument_request
+from main.src.engineering.tracing import timed_step, timed_call
 from main.src.utils.enums import ChunkingStrategy, PdfParser
 from main.src.utils.diagnostics import debug
 from main.src.engineering.runtime import checkpoint
@@ -34,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def _index_snapshot(filename):
-    return collection.get(where={"filename": filename},
+    return timed_call('Read Chroma index', collection.get,where={"filename": filename},
                           include=["documents", "metadatas", "embeddings"])
 
 
@@ -43,16 +45,17 @@ def _restore_index(filename, snapshot):
     collection.delete(where={"filename": filename})
     for start in range(0, len(snapshot['ids']), MAX_BATCH_SIZE):
         end = start + MAX_BATCH_SIZE
-        collection.upsert(ids=snapshot['ids'][start:end],
+        timed_call('Write Chroma vectors', collection.upsert,ids=snapshot['ids'][start:end],
                           documents=snapshot['documents'][start:end],
                           metadatas=snapshot['metadatas'][start:end],
                           embeddings=snapshot['embeddings'][start:end])
 
 
+@instrument_request
 def index_and_store_document(pdf_bytes, filename):
     content_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-    existing = collection.get(
+    existing = timed_call('Read Chroma index', collection.get,
         where={"filename": filename},
         include=["metadatas"],
     )
@@ -93,7 +96,7 @@ def index_and_store_document(pdf_bytes, filename):
             or saved_record["content_hash"] != content_hash
             or saved_record["chunk_count"] != chunk_count
         ):
-            save_document(filename, content_hash, pdf_bytes, chunk_count)
+            timed_call('Save original PDF', save_document, filename, content_hash, pdf_bytes, chunk_count)
     except Exception:
         if snapshot is not None:
             _restore_index(filename, snapshot)
@@ -103,10 +106,11 @@ def index_and_store_document(pdf_bytes, filename):
         "status": indexing_status,
         "chunk_count": chunk_count,
         "content_hash": content_hash,
-        "uncertain_pages": sorted({item['page'] for item in collection.get(
+        "uncertain_pages": sorted({item['page'] for item in timed_call('Read Chroma index', collection.get,
             where={'filename': filename}, include=['metadatas'])['metadatas'] if item.get('visual_uncertainty')}),
     }
 
+@timed_step('Extract, chunk and index PDF')
 def add_document(pdf_file, filename):
     if not isinstance(filename, str) or not filename.strip():
         raise ValueError("filename must be a nonempty string")
@@ -168,7 +172,7 @@ def add_document(pdf_file, filename):
     try:
         for start in range(0, len(all_chunks), MAX_BATCH_SIZE):
             end = start + MAX_BATCH_SIZE
-            collection.upsert(
+            timed_call('Write Chroma vectors', collection.upsert,
                 ids=new_ids[start:end], documents=all_chunks[start:end],
                 embeddings=embeddings[start:end], metadatas=all_metadata[start:end],
             )
@@ -186,19 +190,19 @@ def add_document(pdf_file, filename):
 def delete_document(filename):
     """Remove the saved PDF and index; restore index if SQLite deletion fails."""
     from main.src.memory.memory_service import delete
-    snapshot = collection.get(where={"filename": filename},
+    snapshot = timed_call('Read Chroma index', collection.get,where={"filename": filename},
                               include=["documents", "metadatas", "embeddings"])
     collection.delete(where={"filename": filename})
     try:
         return delete("uploaded_documents", {"filename": filename})
     except Exception:
         if snapshot["ids"]:
-            collection.upsert(ids=snapshot["ids"], documents=snapshot["documents"],
+            timed_call('Write Chroma vectors', collection.upsert,ids=snapshot["ids"], documents=snapshot["documents"],
                               metadatas=snapshot["metadatas"], embeddings=snapshot["embeddings"])
         raise
 
 def list_documents():
-    stored = collection.get(include=["metadatas"])
+    stored = timed_call('Read Chroma index', collection.get,include=["metadatas"])
 
     return sorted({
         metadata["filename"]
@@ -207,6 +211,7 @@ def list_documents():
         and isinstance(metadata.get("filename"), str)
     })
 
+@timed_step('Retrieve and rerank passages')
 def search_documents(
         question, n_results=10, threshold=0.2,
         max_chunks=4, multi_query=False, hybrid=False, rerank=True, filters=None
@@ -263,7 +268,7 @@ def search_documents(
     corpus = None
 
     if hybrid:
-        corpus = collection.get(include=["documents", "metadatas"],**({'where':where} if where else {}))
+        corpus = timed_call('Read Chroma index', collection.get,include=["documents", "metadatas"],**({'where':where} if where else {}))
 
     ranked_lists = []
 
@@ -273,7 +278,7 @@ def search_documents(
 
         query_embedding = create_embedding(query)
 
-        results = collection.query(
+        results = timed_call('Search Chroma vectors', collection.query,
             query_embeddings=[query_embedding],
             n_results=min(n_results, collection.count()),
             include=["documents", "metadatas", "distances"],

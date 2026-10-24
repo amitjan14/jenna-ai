@@ -4,6 +4,8 @@ from main.src.utils import regex_constants as rx
 from contextvars import ContextVar
 from contextlib import contextmanager
 from pathlib import Path
+from functools import wraps
+import inspect
 import hashlib
 import json
 import os
@@ -13,8 +15,9 @@ import time
 import uuid
 
 current_trace = ContextVar('jenna_request_trace', default=None)
+active_span = ContextVar('jenna_timing_span', default=None)
 SECRET = re.compile(rx.SECRET_FIELD, re.I)
-PUBLIC = {'kind','tool','model','status','stage','error_type','server','strategy','digest','prompt_version','cache','reason'}
+PUBLIC = {'kind','tool','model','status','stage','error_type','server','strategy','digest','prompt_version','cache','reason','method','label'}
 
 
 def safe(value, key=''):
@@ -50,23 +53,26 @@ class Trace:
         self.kind=kind
         self.events=[]
         self.started=time.time()
+        self.clock=time.perf_counter()
+        self.spans=[]
         self.status=ExecutionStatus.RUNNING
     def add(self,stage,**attributes):
         if len(self.events)<1000:
             self.events.append({
                 'stage':stage,
-                'elapsed_seconds':round(time.time()-self.started,4),
+                'elapsed_seconds':round(time.perf_counter()-self.clock,4),
                 **safe(attributes)
             })
     def save(self):
-        seconds=time.time()-self.started
+        seconds=time.perf_counter()-self.clock
         payload={
             'id':self.id,
             'kind':self.kind,
             'status':self.status,
             'created':self.started,
             'seconds':seconds,
-            'events':self.events
+            'events':self.events,
+            'timings':self.spans
         }
         with connection() as conn:
             conn.execute('INSERT OR REPLACE INTO traces VALUES (?,?,?,?,?,?)',(self.id,self.started,self.kind,self.status,seconds,json.dumps(payload)))
@@ -122,3 +128,60 @@ def read_trace(trace_id):
         row=conn.execute('SELECT payload FROM traces WHERE id=?',(trace_id,)).fetchone()
     conn.close()
     return json.loads(row[0]) if row else None
+
+
+@contextmanager
+def timing_span(label, method):
+    """Measure inclusive and exclusive wall time without storing arguments."""
+    trace = current_trace.get()
+    if trace is None:
+        yield
+        return
+    parent = active_span.get()
+    row = {'id': len(trace.spans), 'parent_id': parent,
+           'label': label, 'method': method,
+           'start_seconds': round(time.perf_counter() - trace.clock, 6),
+           'status': 'running'}
+    trace.spans.append(row)
+    token = active_span.set(row['id'])
+    started = time.perf_counter()
+    try:
+        yield
+        row['status'] = 'completed'
+    except BaseException as error:
+        row['status'] = 'failed'
+        row['error_type'] = type(error).__name__
+        raise
+    finally:
+        duration = time.perf_counter() - started
+        children = sum(item.get('seconds', 0) for item in trace.spans
+                       if item['parent_id'] == row['id'])
+        row['seconds'] = round(duration, 6)
+        row['self_seconds'] = round(max(0, duration - children), 6)
+        trace.add('step_finished', **row)
+        active_span.reset(token)
+
+
+def timed_step(label):
+    """Named method timing for synchronous and asynchronous operations."""
+    def decorate(function):
+        method = function.__module__ + '.' + function.__qualname__
+        if inspect.iscoroutinefunction(function):
+            @wraps(function)
+            async def asynchronous(*args, **kwargs):
+                with timing_span(label, method):
+                    return await function(*args, **kwargs)
+            return asynchronous
+        @wraps(function)
+        def synchronous(*args, **kwargs):
+            with timing_span(label, method):
+                return function(*args, **kwargs)
+        return synchronous
+    return decorate
+
+
+def timed_call(label, function, *args, **kwargs):
+    """Time library calls, which cannot be decorated at their definition."""
+    method = getattr(function, '__module__', type(function).__module__) + '.' + getattr(function, '__qualname__', type(function).__qualname__)
+    with timing_span(label, method):
+        return function(*args, **kwargs)

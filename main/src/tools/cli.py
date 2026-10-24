@@ -6,11 +6,12 @@ import argparse
 import importlib.metadata
 import json
 import os
+from main.src.utils.environment import tavily_api_key
 
 
 def doctor():
     from main.src.utils.constants import CHAT_MODEL,ROUTER_MODEL,EMBEDDING_MODEL
-    report={'models':{},'dependencies':{},'web_configured':bool(os.getenv('TAVILY_API_KEY'))}
+    report={'models':{},'dependencies':{},'web_configured':bool(tavily_api_key())}
     for package in ['streamlit','ollama',PdfParser.PYPDF,'chromadb','sentence-transformers','faster-whisper','kokoro']:
         try: report['dependencies'][package]=importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError: report['dependencies'][package]=None

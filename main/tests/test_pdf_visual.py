@@ -164,6 +164,36 @@ class VisualExtractionTests(unittest.TestCase):
             self.assertLessEqual(abs(sizes[angle][0]-expected[0]), 2)
             self.assertLessEqual(abs(sizes[angle][1]-expected[1]), 2)
 
+    def test_focused_views_include_embedded_image_without_losing_page_context(self):
+        with pymupdf.open(stream=image_pdf(native=True), filetype='pdf') as document:
+            images = pdf_vision.visual_page_images(document[0])
+        self.assertEqual(len(images), 2)
+        full, detail = [Image.open(io.BytesIO(raw)) for raw in images]
+        self.assertLess(detail.height, full.height)
+        self.assertGreater(detail.width / detail.height, 2)
+
+    def test_image_only_page_does_not_duplicate_image_inputs(self):
+        with pymupdf.open(stream=image_pdf(), filetype='pdf') as document:
+            self.assertEqual(len(pdf_vision.visual_page_images(document[0])), 1)
+
+    def test_focused_views_respect_rotation_and_bound_image_count(self):
+        with pymupdf.open(stream=image_pdf(native=True), filetype='pdf') as document:
+            page = document[0]
+            normal = Image.open(io.BytesIO(pdf_vision.visual_page_images(page)[1])).size
+            page.set_rotation(90)
+            rotated = Image.open(io.BytesIO(pdf_vision.visual_page_images(page)[1])).size
+            self.assertLessEqual(abs(normal[0] - rotated[1]), 2)
+            self.assertLessEqual(abs(normal[1] - rotated[0]), 2)
+            self.assertEqual(len(pdf_vision.visual_page_images(page, max_details=0)), 1)
+
+    def test_small_logos_do_not_add_focused_views(self):
+        with pymupdf.open(stream=image_pdf(), filetype='pdf') as source, pymupdf.open() as document:
+            page = document.new_page()
+            page.insert_text((40, 40), 'Native text with small logo')
+            page.insert_image(pymupdf.Rect(40, 80, 80, 100),
+                              stream=source.extract_image(source[0].get_images()[0][0])['image'])
+            self.assertEqual(len(pdf_vision.visual_page_images(page)), 1)
+
     def test_ocr_opt_out_is_respected(self):
         with patch.object(search_utils, 'read_visual_page') as vision:
             pages = search_utils.layout_pages(io.BytesIO(image_pdf(native=True)), ocr=False)
@@ -214,6 +244,17 @@ class VisualVerificationTests(unittest.TestCase):
         self.assertEqual(json.loads(message['content'])['quotations'], ['Meeting at 10 AM.'])
         self.assertTrue(message['images'][0].startswith(b'\x89PNG'))
 
+    def test_visual_verifier_gets_same_focused_views_for_mixed_page(self):
+        raw = image_pdf(native=True)
+        source = {**self.source, 'content_hash': hashlib.sha256(raw).hexdigest()}
+        client = Mock()
+        client.chat.return_value = {'message': {'content': json.dumps({'supported': True, 'reason': 'Visible'})}}
+        with patch.object(pdf_vision, 'load_document_pdf', return_value=raw), \
+             patch.object(pdf_vision, 'get_client', return_value=client):
+            verdict = pdf_vision.verify_visual_sources([source], self.support)
+        self.assertTrue(verdict['supported'])
+        self.assertEqual(len(client.chat.call_args.kwargs['messages'][-1]['images']), 2)
+
     def test_changed_original_pdf_is_not_accepted(self):
         with patch.object(pdf_vision, 'load_document_pdf', return_value=b'different PDF'), \
              patch.object(pdf_vision, 'get_client') as client:
@@ -262,6 +303,65 @@ class VisualIndexTests(unittest.TestCase):
                 self.assertTrue(chunks[0]['vision_used'])
                 self.assertTrue(chunks[0]['visual_uncertainty'])
                 self.assertEqual(chunks[0]['extraction_method'], 'vision')
+
+
+class VisualContentTests(unittest.TestCase):
+    def source(self, **changes):
+        return {'filename': 'notes.pdf', 'page': 2, 'chunk_index': 0,
+                'vision_used': True, 'extraction_method': 'vision',
+                'text': 'Please bring sketchbooks.\nClass starts at 9 AM.\nRIVER_SKY'
+                        '\n\nAdditional OCR reading (verify against the original image):\ngarbage',
+                **changes}
+
+    def test_named_image_content_copies_body_and_excludes_unverified_ocr(self):
+        from main.src.rag.rag_service import visual_content_passage
+        source = self.source()
+        support = visual_content_passage("what does river sky image's data", [source])
+        self.assertIn('sketchbooks', support[0]['quote'])
+        self.assertIn('9 AM', support[0]['quote'])
+        self.assertNotIn('garbage', support[0]['quote'])
+        self.assertIn(support[0]['quote'], source['text'])
+
+    def test_label_question_or_unknown_handle_does_not_read_whole_page(self):
+        from main.src.rag.rag_service import visual_content_passage
+        for question in ['What does the signature say?', 'What is cloud light image content?']:
+            self.assertIsNone(visual_content_passage(question, [self.source()]))
+
+    def test_named_writer_message_uses_body_not_only_signature(self):
+        from main.src.rag.rag_service import visual_content_passage
+        support = visual_content_passage('What does river sky say in notes.pdf?', [self.source()])
+        self.assertIn('Please bring sketchbooks.', support[0]['quote'])
+
+    def test_verified_transcription_is_returned_without_fact_selection(self):
+        from main.src.rag import rag_service as rag
+        with patch.object(rag, 'verify_document_answer', return_value={
+                'supported': True, 'complete': True, 'reason': ''}) as verify, \
+             patch.object(rag.get_client(), 'chat') as select:
+            result = rag.generate_document_answer('What does river sky say?', [self.source()])
+        verify.assert_called_once()
+        select.assert_not_called()
+        self.assertTrue(result['verbatim_transcription'])
+        self.assertIn('sketchbooks', result['answer'])
+
+    def test_ambiguous_long_uncertain_or_partial_pages_use_normal_selection(self):
+        from main.src.rag.rag_service import visual_content_passage
+        question = 'What is river sky image content?'
+        for sources in [[self.source(), self.source(page=3)],
+                        [self.source(text=('word ' * 200) + 'RIVER_SKY')],
+                        [self.source(chunk_index=1)],
+                        [self.source(visual_uncertainty=True)]]:
+            self.assertIsNone(visual_content_passage(question, sources))
+
+    def test_readable_transcription_still_requires_verification(self):
+        from main.src.rag import rag_service as rag
+        refusal = {'message': {'content': json.dumps({'parts': [
+            {'part_id': 0, 'answerable': False, 'support': []}]})}}
+        with patch.object(rag, 'verify_document_answer', return_value={
+                'supported': False, 'complete': False, 'reason': 'Image does not support text.'}) as verify, \
+             patch.object(rag.get_client(), 'chat', return_value=refusal):
+            result = rag.generate_document_answer('What is river sky image content?', [self.source()])
+        verify.assert_called_once()
+        self.assertFalse(result['answerable'])
 
 
 if __name__ == '__main__':

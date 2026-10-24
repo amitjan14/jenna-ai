@@ -31,6 +31,7 @@ from main.src.utils.constants import DEFAULT_CHAT_MODEL
 
 from main.src.engineering.jobs import manager
 from main.src.engineering.tracing import list_traces, read_trace
+from main.src.ui.timings import display_timings
 from main.src.integrations.mcp_client import load_servers, discover, run_mcp_question
 import asyncio
 from main.src.memory.chat_memory import list_chats, create_chat, save_message
@@ -248,6 +249,7 @@ with st.sidebar:
                         uploaded_file.name,
                     )
 
+                st.session_state.setdefault('upload_timings', {})[uploaded_file.name] = result.get('metrics', {})
                 st.session_state.processed_uploads.add(upload_key)
 
                 if result["status"] == "already_indexed":
@@ -268,6 +270,10 @@ with st.sidebar:
                 st.error(
                     f"Could not save/index {uploaded_file.name}: {error}"
                 )
+
+    for filename, upload_metrics in st.session_state.get('upload_timings', {}).items():
+        st.caption(f"Upload: {filename} · {upload_metrics.get('total_seconds', 0):.2f}s")
+        display_timings(upload_metrics, f"upload-{filename}")
 
     # Outside `if uploaded_files`: visible after reload.
     st.divider()
@@ -320,6 +326,9 @@ for index, message in enumerate(st.session_state.messages):
             metrics = message["metrics"]
             st.caption(f"{metrics.get('total_seconds', 0):.2f}s · "
                        f"{metrics.get('llm_calls', 0)} model calls")
+            if metrics.get('queue_seconds', 0) >= .01:
+                st.caption(f"Queue wait: {metrics['queue_seconds']:.2f}s (before request processing)")
+            display_timings(metrics, f"{st.session_state.active_chat_id}-{index}")
         display_passages(message.get("passages", []))
         display_retrieval_failure(message)
         if message.get("trace_id"):

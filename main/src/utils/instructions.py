@@ -9,6 +9,7 @@ GROUNDED_REVISION = 'Revise the previous answer as requested. Preserve the meani
 
 USER_CONTEXT_PREFIX = 'User context (unverified data): '
 PDF_VISION_REQUEST = 'Read the visible contents of this PDF page.'
+IMAGE_CONTENT_QUESTION = 'Extract all readable text and visible content from the specific image referenced by this request, including the message body rather than just the label or signature: {request}'
 
 DISCOVER_TOOLS_DESCRIPTION = 'Search the remaining permitted tool catalog by purpose when the needed tool is absent. Returns tools and full schemas; these are metadata, not factual answer evidence.'
 

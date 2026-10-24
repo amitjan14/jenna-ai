@@ -5,3 +5,7 @@ relations, or unsupported inference. For an editing request, require faithful me
 all words of the old answer. For ordinary examples after private-source answers, only
 facts grounded in these sources are allowed. Check requested coverage; allowed shortening
 is not incompleteness. Missing facts must be stated as missing.
+
+Source titles and page numbers are supplied citation metadata. A page reference
+can be supported by that metadata even when no page number appears in the quote.
+Never require the application to alter a source quotation to include its page.

@@ -20,6 +20,9 @@ EXPLICIT_WEB_SCOPE = r'\b(?:search|browse|look|check|find)\b.{0,40}\b(?:web|onli
 JIRA_NEGATION = r'\b(?:(?:do not|don[\x27’]?t|never)\s+(?:use|search|query|access)\s+|without\s+)jira\b'
 DOCUMENT_PROFILE_REQUEST = r'\b(?:skills?|qualifications?|r[eé]sum[eé]s?|cv|experience|proficienc(?:y|ies))\b'
 CONTEXT_WORD = r'\w{3,}'
+IMAGE_CONTENT_REQUEST = r"\b(?:image|picture|photo|page|note)(?:['’]s)?\s+(?:data|content)\b"
+SIGNED_HANDLE = r'\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b'
+SIGNED_MESSAGE_REQUEST = r'\bwhat\s+(?:does|did)\s+.+?\s+(?:say|write|wrote)\b'
 CITATION_MARKER = r'\[(\d+)\]'
 MEMORY_SAVE_REQUEST = r'\b(?:remember|save|store|retain)\b|keep (?:this|that|it|in mind)|make (?:a )?note'
 MEMORY_DELETE_REQUEST = r'\b(?:forget|delete|remove|erase)\b|stop remembering'
@@ -81,8 +84,8 @@ DIRECT_CONVERSATION_PATTERNS = (
     r'what can you do', r'what are your capabilities', r'how can you help(?: me)?', r'who are you',
 )
 CONTEXT_REFERENCE_PATTERNS = (
-    r'\b(?:it|its|they|them|their|those|these)\b', r'\b(?:this|that)\s*[.!?]*$',
-    r'\b(?:this|that)\s+(?:model|tool|approach|method|answer|document|concept|result|calculation)\b',
+    r'\b(?:it|its|they|them|their|those|these|he|she|his|her)\b', r'\b(?:this|that)\s*[.!?]*$',
+    r'\b(?:this|that)\s+(?:model|tool|approach|method|answer|document|concept|result|calculation|image|picture|page|card|note)\b',
     r'\b(?:one|ones)\s*[.!?]*$', r'^(?:explain|expand|elaborate|continue|summarize|simplify)\s*[.!?]*$',
     r'^(?:tell me more|give me an example|give another example|why|why not)\s*[.!?]*$',
     r'^(?:make|keep)\s+(?:it\s+)?(?:shorter|simpler|more detailed)\b', r'^(?:and|also)\b',
@@ -100,6 +103,15 @@ def vector_pattern(label):
 
 def exact_anchor_pattern(value):
     return r'(?<![\w])' + re.escape(value) + r'(?![\w])'
+
+
+def document_reference_pattern(filename):
+    stem = filename[:-4] if filename.lower().endswith('.pdf') else filename
+    # Bare generic single words are not enough to establish a filename scope.
+    allow_stem = len(stem.split()) > 1 or any(char.isdigit() for char in stem)
+    name = r'\s+'.join(re.escape(word) for word in stem.split())
+    suffix = r'(?:\.pdf)?' if allow_stem else r'\.pdf'
+    return r'(?<![\w])' + name + suffix + r'(?![\w])'
 
 
 def identifier_pattern(value):
@@ -134,8 +146,13 @@ JIRA_BOARD = '\\bboard\\s+(\\d+)\\b'
 JIRA_ISSUE_KEY_REFERENCE = '\\b[A-Za-z][A-Za-z0-9_]*-\\d+\\b'
 JIRA_RELATED_ISSUE_REQUEST = '\\b(?:sprint|sprimt|board|compare|related|linked)\\b'
 JIRA_ISSUE_DETAIL = '\\b(?:due|date|status|summary|details|show|tell|about|when)\\b'
+JIRA_DUE_DATE_REQUEST = r'\b(?:due(?:[ -]?date)?|deadline)\b'
 SECRET_FIELD = 'token|secret|password|authorization|api.?key|cookie'
 AUTH_HEADER = '(?i)(bearer|basic)\\s+\\S+'
 TOOL_TOKEN = '[a-z0-9_]+'
 CAMEL_CASE_BOUNDARY = '([a-z])([A-Z])'
 HISTORY_IDENTIFIER = '\\b[A-Z][A-Z0-9_]+-\\d+\\b|https://[^\\s<>]+|\\b\\d{4}-\\d{2}-\\d{2}\\b'
+
+# Presentation requests use source metadata; these are not words to find in a quote.
+SOURCE_PAGE_REQUEST = r'\b(?:page\s+(?:number|reference|citation)s?|(?:which|what)\s+pages?|(?:include|provide|show|give|cite|with)\b[^?!.]{0,90}\bpages?)\b'
+SOURCE_QUOTE_REQUEST = r'\b(?:supporting\s+(?:quotation|quote)s?|(?:include|provide|show|give|with)\s+(?:(?:the|a|an)\s+)?(?:supporting\s+|exact\s+)?(?:quotation|quote)s?)\b'

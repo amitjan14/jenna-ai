@@ -1,3 +1,4 @@
+from main.src.engineering.tracing import timed_step
 """Measured Ollama client shared by routing and evidence selection."""
 from main.src.utils.enums import ModelOperation
 import os
@@ -20,6 +21,7 @@ class Client:
     def get_client(self):
         return self.client
 
+    @timed_step('Check model provenance')
     def _record_provenance(self, model):
         key=(self.host, model)
         if current_trace.get():
@@ -32,6 +34,7 @@ class Client:
                 _provenance_cache[key]=(time.monotonic(),digest)
             event('model_provenance',model=model,digest=_provenance_cache[key][1])
 
+    @timed_step('Ollama chat')
     def chat(self, **kwargs):
         model = str(kwargs.get('model',''))
         checkpoint('model_started',model=model)
@@ -56,6 +59,7 @@ class Client:
         checkpoint()
         return response
 
+    @timed_step('Ollama streamed answer')
     def stream_chat(self, **kwargs):
         """Collect token deltas while publishing bounded local job/UI progress."""
         model = str(kwargs.get('model', ''))
@@ -86,6 +90,7 @@ class Client:
         if not answer: raise ValueError('The model returned an empty response')
         return answer
 
+    @timed_step('Ollama embeddings')
     def embed(self, **kwargs):
         checkpoint('embedding_started',model=str(kwargs.get('model','')))
         start = perf_counter()

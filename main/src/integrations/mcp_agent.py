@@ -1,7 +1,11 @@
+from main.src.engineering.tracing import timed_step
 """General local tool-calling agent driven by discovered MCP schemas."""
 from main.src.utils import instructions
 from main.src.utils.common_utils import load_prompt
 from main.src.utils.enums import PromptName
+from main.src.utils import regex_constants as rx
+import re
+from main.src.integrations.jira_workflow import prepare_due_date_read, due_date_facts
 from main.src.utils.enums import ExecutionStatus, ResultStatus, Role
 from main.src.utils.constants import DEFAULT_CHAT_MODEL, DEFAULT_MCP_CONTEXT_TOKENS
 import hashlib
@@ -59,6 +63,7 @@ def pending_pages(evidence):
     return [tool for (tool, _), incomplete in latest.items() if incomplete]
 
 
+@timed_step('Reason over MCP evidence')
 async def run(question, config, name, tools, execute, client, identifier_check=None, history=None):
     event('agent_started',model=os.getenv('JENNA_MCP_MODEL',DEFAULT_CHAT_MODEL),
           prompt_version=hashlib.sha256(SYSTEM.encode()).hexdigest())
@@ -199,6 +204,8 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
                 required = tool.input_schema.get('required', [])
                 arguments = {key: value for key, value in arguments.items() if key in required or
                              value is not None and value not in ('', 'null', 'None', 'undefined')}
+                if name == 'jira':
+                    arguments = prepare_due_date_read(question, tool, arguments)
                 signature = (tool_name, json.dumps(arguments, sort_keys=True))
                 if signature in attempted:
                     raise ValueError(instructions.MCP_DUPLICATE_READ)
@@ -224,6 +231,8 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
             except (ValueError, TypeError) as error:
                 result['content'] = str(error)[:500]
             evidence.append(result)
+            if name == 'jira' and re.search(rx.JIRA_DUE_DATE_REQUEST, question, re.I):
+                result['requested_field_facts'] = due_date_facts([result])
             messages.append({
                 'role': Role.TOOL,
                 'tool_name': tool_name,
@@ -265,6 +274,16 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
         else:
             answer = 'I could not retrieve successful MCP evidence for this request. Please review the tool errors.'
     rejection_reason = ''
+    if (name == 'jira' and status == ResultStatus.ANSWERED
+            and re.search(rx.JIRA_DUE_DATE_REQUEST, question, re.I)):
+        requested = set(key.upper() for key in re.findall(rx.JIRA_ISSUE_KEY_REFERENCE, question))
+        missing = {fact['issue'].upper() for fact in due_date_facts(evidence) if not fact['returned']}
+        if len(requested) == 1 and requested <= missing:
+            key = next(iter(requested))
+            status = ResultStatus.PARTIAL_ANSWER
+            rejection_reason = 'The requested duedate field was not returned by Jira.'
+            answer = (f'Jira did not return the due-date field for {key}. '
+                      'I cannot determine whether a due date is set from these results.')
     if status == ResultStatus.ANSWERED:
         verification_budget=max(4000,(int(os.getenv('JENNA_MCP_CONTEXT_TOKENS',str(DEFAULT_MCP_CONTEXT_TOKENS)))-1024)*3-len(answer)-len(references)-len(question)-3000)
         verification_evidence=[];used_bytes=0
@@ -287,9 +306,11 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
                 'role': Role.USER,
                 'content': json.dumps({
                     'question': question,
-                    'conversation': references,
+                    'conversation': '\n'.join(m['content'][:6000] for m in (history or [])[-6:]
+                                              if m.get('role') == Role.USER and isinstance(m.get('content'), str)),
                     'candidate': candidate_answer,
                     'evidence': verification_evidence,
+                    'requested_field_facts': due_date_facts(verification_evidence) if name == 'jira' else [],
                     'omitted_results':verification_omitted
                 }, ensure_ascii=False)
             }],
@@ -347,7 +368,7 @@ async def run(question, config, name, tools, execute, client, identifier_check=N
             if not verification['supported']:
                 status = ResultStatus.INSUFFICIENT_EVIDENCE
                 rejection_reason = verification['reason']
-                answer = 'I could not verify the answer from the MCP results. ' + rejection_reason
+                answer = 'I could not verify the answer from the MCP results. Please review the retrieved evidence.'
             elif not verification['complete']:
                 status = ResultStatus.PARTIAL_ANSWER
                 rejection_reason = verification['reason']

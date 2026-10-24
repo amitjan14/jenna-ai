@@ -15,7 +15,7 @@ PDF_VISION_MODEL = os.getenv('JENNA_VISION_MODEL', CHAT_MODEL)
 PDF_VISION_MODE = os.getenv('JENNA_PDF_VISION', 'auto').lower()
 if PDF_VISION_MODE not in {'auto', 'always', 'off'}:
     raise ValueError('JENNA_PDF_VISION must be auto, always or off')
-DOCUMENT_PARSER_VERSION = (f'layout-visual-v4:{PDF_VISION_MODE}:{PDF_VISION_MODEL}:ocr={os.getenv("JENNA_OCR", "true").lower()}'
+DOCUMENT_PARSER_VERSION = (f'layout-visual-v5:{PDF_VISION_MODE}:{PDF_VISION_MODEL}:ocr={os.getenv("JENNA_OCR", "true").lower()}'
                            if os.getenv('JENNA_PDF_PARSER',PdfParser.LAYOUT)==PdfParser.LAYOUT else 'pypdf-v1')
 ROUTER_MODEL = os.getenv("JENNA_ROUTER_MODEL", CHAT_MODEL)
 RERANKER_MODEL = os.getenv("JENNA_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")

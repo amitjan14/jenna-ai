@@ -4,6 +4,7 @@ from unittest.mock import patch
 from mcp.types import Tool
 from main.src.integrations.mcp_agent import run, bounded, pending_pages
 from main.src.integrations.mcp_client import jira_identifiers_supported
+from main.src.integrations.jira_workflow import prepare_due_date_read, due_date_facts
 
 TOOL = Tool(name='lookup', input_schema={'type': 'object', 'properties': {'query': {'type': 'string'}}, 'required': ['query'], 'additionalProperties': False})
 
@@ -22,6 +23,74 @@ class Model:
 
 
 class AgentTests(unittest.IsolatedAsyncioTestCase):
+    def test_due_date_reads_request_explicit_field_and_preserve_other_fields(self):
+        tool = Tool(name='getJiraIssue', input_schema={'type': 'object', 'properties': {
+            'view': {'type': 'string', 'enum': ['compact', 'evidence', 'full']},
+            'fields': {'type': 'array'}}})
+        original = {'issueIdOrKey': 'LAB-73', 'view': 'evidence', 'fields': ['customfield_42']}
+        result = prepare_due_date_read('When is LAB-73 due?', tool, original)
+        self.assertEqual(result['view'], 'full')
+        self.assertEqual(result['fields'], ['customfield_42', 'duedate'])
+        self.assertEqual(original['fields'], ['customfield_42'])
+        self.assertEqual(prepare_due_date_read('Who owns LAB-73?', tool, original), original)
+
+    def test_due_date_observations_distinguish_omission_null_and_value(self):
+        def evidence(fields, key='LAB-73'):
+            return {'tool': 'getJiraIssue', 'is_error': False, 'content': [
+                {'type': 'text', 'text': {'data': {'key': key, 'fields': fields}}}]}
+        missing, null, dated = evidence({}), evidence({'duedate': None}), evidence({'duedate': '2026-10-23'})
+        self.assertEqual(due_date_facts([missing])[0], {'issue': 'LAB-73', 'field': 'duedate', 'returned': False})
+        self.assertIsNone(due_date_facts([null])[0]['value'])
+        self.assertTrue(due_date_facts([null])[0]['returned'])
+        self.assertEqual(due_date_facts([dated, missing])[0]['value'], '2026-10-23')
+        self.assertEqual(due_date_facts([{**dated, 'is_error': True}]), [])
+
+    async def test_current_verification_excludes_previous_assistant_verdict(self):
+        self.executions = []
+        old = 'The previous ticket had no due date and only closed sprints.'
+        model = Model([tool_message(), answer(), answer(json.dumps({
+            'supported': True, 'complete': True, 'reason': ''}))])
+        await run('capital?', {}, 'test', [TOOL], self.execute, model,
+                  history=[{'role': 'user', 'content': 'Earlier question'},
+                           {'role': 'assistant', 'content': old}])
+        verification = json.loads(model.requests[-1]['messages'][-1]['content'])
+        self.assertNotIn(old, verification['conversation'])
+        self.assertIn('Earlier question', verification['conversation'])
+
+    async def test_jira_due_date_model_call_is_enriched_before_execution(self):
+        tool = Tool(name='getJiraIssue', input_schema={'type': 'object', 'properties': {
+            'issueIdOrKey': {'type': 'string'}, 'view': {'type': 'string'},
+            'fields': {'type': 'array'}}, 'required': ['issueIdOrKey']})
+        seen = []
+        async def execute(name, args):
+            seen.append(args)
+            return {'tool': name, 'arguments': args, 'is_error': False,
+                    'content': {'key': 'LAB-73', 'fields': {'duedate': '2026-10-23'}}}
+        model = Model([tool_message('getJiraIssue', {'issueIdOrKey': 'LAB-73', 'view': 'evidence'}),
+                       answer('The due date is 23 October 2026.'),
+                       answer(json.dumps({'supported': True, 'complete': True, 'reason': ''}))])
+        result = await run('What is the due date of LAB-73?', {}, 'jira', [tool], execute, model)
+        self.assertIn('duedate', seen[0]['fields'])
+        self.assertEqual(seen[0]['view'], 'full')
+        payload = json.loads(model.requests[-1]['messages'][-1]['content'])
+        self.assertEqual(payload['requested_field_facts'][0]['value'], '2026-10-23')
+        self.assertEqual(result['status'], 'answered')
+
+    async def test_omitted_due_date_cannot_be_reported_as_unset(self):
+        tool = Tool(name='getJiraIssue', input_schema={'type': 'object', 'properties': {
+            'issueIdOrKey': {'type': 'string'}, 'view': {'type': 'string'},
+            'fields': {'type': 'array'}}, 'required': ['issueIdOrKey']})
+        async def execute(name, args):
+            return {'tool': name, 'arguments': args, 'is_error': False,
+                    'content': {'key': 'LAB-73', 'fields': {'summary': 'Example'}}}
+        model = Model([tool_message('getJiraIssue', {'issueIdOrKey': 'LAB-73'}),
+                       answer('The due date is not set (null).')])
+        result = await run('What is the due date of LAB-73?', {}, 'jira', [tool], execute, model)
+        self.assertEqual(result['status'], 'partial_answer')
+        self.assertIn('did not return', result['answer'])
+        self.assertNotIn('null', result['answer'])
+        self.assertNotIn('not set', result['answer'])
+
     async def execute(self, name, arguments):
         self.executions.append((name, arguments))
         if name != 'lookup' or set(arguments) != {'query'}: raise ValueError('Invalid tool or arguments')

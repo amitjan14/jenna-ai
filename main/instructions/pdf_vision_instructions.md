@@ -21,3 +21,11 @@ precise chart values where only a trend is visible. State chart units and labels
 For a diagram with no text, describe its visible connections. Return an empty
 response for a blank page. Use [illegible] whenever meaningful content cannot be
 read reliably. Return the complete plain-text reading, without JSON or code fences.
+
+Writing inside a photograph (notebooks, cards, signs or screenshots) is source
+text, not decoration. Read it even when surrounding printed headings and credits
+are easier to read. Do not stop after transcribing the surrounding native text.
+If several images are supplied, the first is the complete page and the rest are
+focused views of regions on THAT SAME page. Use them to read smaller writing;
+merge the readings without duplicating text or treating views as extra pages.
+Mark unreadable meaningful writing [illegible] rather than silently omitting it.

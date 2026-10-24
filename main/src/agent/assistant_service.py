@@ -1,6 +1,8 @@
+from main.src.engineering.tracing import timed_step
 """Local intent interpretation and automatic dispatch across available sources."""
 from main.src.utils.enums import AnswerKind, Connection, Intent, PromptName, ResultStatus, Role, SearchMode
 from main.src.utils import regex_constants as rx
+from main.src.utils import instructions
 import json
 import re
 from jsonschema import validate
@@ -9,6 +11,7 @@ from main.src.utils.common_utils import load_prompt, make_result
 from main.src.utils.constants import ROUTER_MODEL
 from main.src.utils.schemas import assistant_schema
 from main.src.utils.telemetry import instrument_request
+from main.src.rag.citations import requests_source_details
 from main.src.engineering.runtime import checkpoint
 from main.src.engineering.tracing import event
 from main.src.agent.conversation import (
@@ -27,7 +30,7 @@ from main.src.integrations.mcp_client import load_servers, run_mcp_question
 from main.src.tools.calculator import parse_explicit_arithmetic, resolve_arithmetic_followup
 from main.src.agent.agent_utils import is_direct_conversation, is_local_code_request, needs_conversation_context
 from main.src.agent.agent_service import run_agent
-from main.src.rag.context import active_document_filter
+from main.src.rag.context import active_document_filter, active_source_request
 from main.src.integrations.jira_workflow import work_subject
 
 PRIVATE_SCOPE = re.compile(rx.PRIVATE_DOCUMENT_SCOPE, re.I)
@@ -49,6 +52,33 @@ def matches_uploaded_document(question, filenames):
                for name in filenames)
 
 
+def preserve_document_question(question, plan):
+    """A standalone source question is authoritative, not a model paraphrase."""
+    if (plan['connection'] == Connection.LOCAL
+            and plan['mode'] == SearchMode.DOCUMENTS
+            and plan['intent'] == Intent.TASK
+            and not plan['clarification']
+            and not needs_conversation_context(question)
+            and plan['question'] != question.strip()):
+        plan['question'] = question.strip()
+        plan['state'] = {**plan['state'], 'goal': question.strip()}
+        event('interpretation_anchors_preserved', status='original_document_question_retained')
+
+
+def referenced_document_filter(question, filenames):
+    """Resolve one literal filename/unique title; do not narrow comparisons."""
+    question = re.sub(rx.URL_REFERENCE, '', question, flags=re.I)
+    matches = [(match.start(), match.end(), name)
+               for name in filenames
+               for match in re.finditer(rx.document_reference_pattern(name), question, re.I)]
+    # 'Test PDF' inside 'Test Pdf 2' is not a second independent reference.
+    names = {name for start, end, name in matches
+             if not any(a <= start and end <= b and b-a > end-start
+                        for a, b, other in matches if other != name)}
+    return {'filename': names.pop()} if len(names) == 1 else None
+
+
+@timed_step('Understand request and choose source')
 def plan_request(question, history=None, servers=None, model_client=None, state=None):
     # Checking Question and its character limit
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 4000:
@@ -210,6 +240,7 @@ def plan_request(question, history=None, servers=None, model_client=None, state=
             question=question.strip(),
             clarification=''
         )
+    preserve_document_question(question, plan)
     return plan
 
 
@@ -263,6 +294,11 @@ def run_assistant(question, history=None, connection=Connection.AUTO, mode=Searc
     else:
         plan = plan_request(text, history, servers, model_client, state)
 
+    if (filters is None and connection in {Connection.AUTO, Connection.LOCAL}
+            and mode in {SearchMode.AUTO, SearchMode.DOCUMENTS}
+            and not re.search(rx.EXPLICIT_WEB_SCOPE, text, re.I)):
+        filters = referenced_document_filter(text, load_document_records())
+
     # Memory and editing never acquire external tools merely through model routing.
     if plan['intent'] in {
         Intent.CHAT,
@@ -305,6 +341,13 @@ def run_assistant(question, history=None, connection=Connection.AUTO, mode=Searc
             plan['mode'] = SearchMode.DOCUMENTS
     if plan['connection'] == 'jira' and re.search(rx.JIRA_NEGATION, text, re.I):
         plan.update(connection=Connection.LOCAL, mode=SearchMode.DOCUMENTS)
+    # Caller filters/mode can establish document scope after interpretation.
+    preserve_document_question(text, plan)
+    if (plan['connection'] == Connection.LOCAL and plan['mode'] == SearchMode.DOCUMENTS
+            and plan['intent'] == Intent.TASK and not plan['clarification']
+            and re.search(rx.IMAGE_CONTENT_REQUEST, text, re.I)):
+        # Normalize an elliptical content request without dropping its subject.
+        plan['question'] = instructions.IMAGE_CONTENT_QUESTION.format(request=plan['question'])
     checkpoint()
     if plan['clarification']:
         result = make_result(plan['clarification'], ResultStatus.NEEDS_CLARIFICATION, None)
@@ -317,6 +360,7 @@ def run_assistant(question, history=None, connection=Connection.AUTO, mode=Searc
         result = memory_request(plan['intent'], plan['memory_key'], plan['memory_value'], text, session_id)
     elif plan['connection'] == Connection.LOCAL:
         token = active_document_filter.set(filters)
+        request_token = active_source_request.set(text)
         try:
             personality = load_prompt(PromptName.PERSONALITY)
             result = run_agent(
@@ -326,8 +370,13 @@ def run_assistant(question, history=None, connection=Connection.AUTO, mode=Searc
                 search_mode=plan['mode']
             )
         finally:
+            active_source_request.reset(request_token)
             active_document_filter.reset(token)
-        result = natural_summary(plan['question'], result)
+        # A request for image contents should retain the verified transcription.
+        if (not requests_source_details(text)
+                and not result.get('verbatim_transcription')
+                and not re.search(rx.IMAGE_CONTENT_REQUEST, text, re.I)):
+            result = natural_summary(plan['question'], result)
     else:
         result = run_mcp_question(
             plan['question'],
